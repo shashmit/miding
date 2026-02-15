@@ -45,9 +45,6 @@ struct EditorToolbar: View {
                     ToolbarButton(icon: "list.number", tooltip: "Numbered List") {
                         insertLinePrefix("1. ")
                     }
-                    ToolbarButton(icon: "checklist", tooltip: "Task") {
-                        append("\n- [ ] ")
-                    }
                 }
                 
                 ToolbarSep()
@@ -81,8 +78,13 @@ struct EditorToolbar: View {
                 
                 // Miding-specific
                 ToolbarGroup {
-                    ToolbarButton(icon: "tag", tooltip: "Attributes") {
-                        append(" @due() ! #")
+                    ToolbarButton(icon: "checkmark.square", tooltip: "Task") {
+                        let today = {
+                            let f = DateFormatter()
+                            f.dateFormat = "yyyy-MM-dd"
+                            return f.string(from: Date())
+                        }()
+                        append("\n- [ ] Task description @due(\(today)) @priority(medium)")
                     }
                     ToolbarButton(icon: "ticket", tooltip: "Ticket") {
                         append("\n:::ticket\nID: \nTitle: \nStatus: \n:::\n")

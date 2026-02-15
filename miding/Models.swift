@@ -10,37 +10,7 @@ enum TicketStatus: String, Codable, CaseIterable {
     case open, inProgress = "in-progress", blocked, closed
 }
 
-struct TaskItem: Identifiable, Codable {
-    var id = UUID()
-    var title: String
-    var isCompleted: Bool
-    var index: Int // Zero-based line number in the source note
-    var originalText: String // The full line text for verification
-    
-    // Helper to initialize with a deterministic UUID from a string
-    init(title: String, index: Int, isCompleted: Bool, originalText: String) {
-        self.title = title
-        self.index = index
-        self.isCompleted = isCompleted
-        self.originalText = originalText
-        // Create a deterministic UUID from title + index to keep IDs stable across parses if content hasn't changed
-        let combined = "\(title)|\(index)"
-        self.id = UUID(uuidString: UUID.generateDeterministicUUIDString(from: combined)) ?? UUID()
-    }
 
-    // Default init for existing code that might need it (though we should prefer the deterministic one)
-    init(title: String, isCompleted: Bool) {
-        self.title = title
-        self.index = 0
-        self.isCompleted = isCompleted
-        self.originalText = "- [ ] \(title)"
-    }
-    var priority: Priority?
-    var estimatedDuration: TimeInterval? // In seconds
-    var project: String?
-    var tags: [String] = []
-    var linkedTicketID: String?
-}
 
 struct Ticket: Identifiable, Codable {
     var id = UUID()
@@ -54,6 +24,10 @@ struct Ticket: Identifiable, Codable {
     var createdDate: Date?
     var closedDate: Date?
     var body: String? // The content below the ticket block
+    
+    // Line tracking for modifications
+    var blockStartLine: Int?
+    var blockEndLine: Int?
 }
 
 struct CalendarEntry: Identifiable, Codable {
@@ -87,11 +61,23 @@ struct JournalEntry: Codable {
     var metadata: JournalMetadata?
 }
 
+struct TaskItem: Identifiable, Hashable {
+    let id: UUID
+    let text: String
+    let isCompleted: Bool
+    let lineIndex: Int // line number in the markdown for toggling
+    let dueDate: Date?      // Parsed from @due(yyyy-MM-dd)
+    let dueTime: Date?      // Parsed from @time(HH:mm)
+    let priority: Priority? // Parsed from @priority(low|medium|high|critical)
+    let category: String?   // Parsed from @cat(...)
+    let completedDate: Date? // Parsed from @done(yyyy-MM-dd)
+}
+
 struct ParseResult {
-    var tasks: [TaskItem]
     var tickets: [Ticket]
     var calendarEntries: [CalendarEntry]
     var projects: [Project]
+    var tasks: [TaskItem]
     var metadata: JournalMetadata?
 }
 

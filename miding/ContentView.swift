@@ -11,8 +11,8 @@ struct ContentView: View {
     @StateObject private var vm = NotesViewModel()
     @State private var columnVisibility = NavigationSplitViewVisibility.doubleColumn
     @State private var selectedFolder: String? = "Dashboard"
-    @State private var taskFilter = 0  // 0=All, 1=Active, 2=Completed
     @State private var ticketFilter = "all"  // all, open, in-progress, blocked, closed
+    @State private var taskFilter = "all"    // all, pending, done
     @State private var showDeleteConfirm = false
     @State private var topicsExpanded = true
     @State private var newTagText = ""
@@ -22,15 +22,37 @@ struct ContentView: View {
 
     var body: some View {
         Group {
-            if selectedFolder == "Dashboard" {
+            if selectedFolder == "Dashboard" || selectedFolder == "Workstream" || selectedFolder == "Tasks" || selectedFolder == "Tickets" {
                 NavigationSplitView {
                     sidebar
                         .navigationSplitViewColumnWidth(min: 160, ideal: 180, max: 220)
                 } detail: {
-                    dashboardView
+                    if selectedFolder == "Workstream" {
+                        TaskTimelineView(vm: vm) { noteID in
+                            vm.navigateToNote(id: noteID)
+                            selectedFolder = "All Notes"
+                        }
                         #if os(macOS)
                         .toolbar(.hidden, for: .windowToolbar)
                         #endif
+                        .navigationTitle("")
+                    } else if selectedFolder == "Tasks" {
+                        tasksListView
+                        #if os(macOS)
+                        .toolbar(.hidden, for: .windowToolbar)
+                        #endif
+                    } else if selectedFolder == "Tickets" {
+                        ticketsListView
+                        #if os(macOS)
+                        .toolbar(.hidden, for: .windowToolbar)
+                        #endif
+                    } else {
+                        dashboardView
+                        #if os(macOS)
+                        .toolbar(.hidden, for: .windowToolbar)
+                        #endif
+                        .navigationTitle("")
+                    }
                 }
                 .navigationSplitViewStyle(.balanced)
             } else {
@@ -53,7 +75,7 @@ struct ContentView: View {
             Alert(title: Text("Error"), message: Text(wrapper.message))
         }
         .onChange(of: selectedFolder) { newValue in
-            if newValue == "Dashboard" {
+            if ["Dashboard", "Workstream", "Tasks", "Tickets"].contains(newValue) {
                 vm.selectedNote = nil
             }
         }
@@ -103,6 +125,9 @@ struct ContentView: View {
             NavigationLink(value: "Dashboard") {
                 Label("Dashboard", systemImage: "square.grid.2x2")
             }
+            NavigationLink(value: "Workstream") {
+                Label("Workstream", systemImage: "chart.bar.xaxis")
+            }
             NavigationLink(value: "All Notes") {
                 Label("All Notes", systemImage: "note.text")
             }
@@ -118,13 +143,13 @@ struct ContentView: View {
                 HStack {
                     Label("Tasks", systemImage: "checklist")
                     Spacer()
-                    if vm.totalTaskCount > 0 {
-                        Text("\(vm.totalTaskCount)")
+                    if vm.pendingTaskCount > 0 {
+                        Text("\(vm.pendingTaskCount)")
                             .font(.caption2.weight(.medium))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.white)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)
-                            .background(Capsule().fill(.tertiary.opacity(0.3)))
+                            .background(Capsule().fill(.orange))
                     }
                 }
             }
@@ -187,12 +212,11 @@ struct ContentView: View {
     @ViewBuilder
     private var middleColumn: some View {
         switch selectedFolder {
-        case "Tasks":
-            tasksListView
-        case "Tickets":
-            ticketsListView
         case "History":
             historyListView
+        case "Workstream", "Tasks", "Tickets", "Dashboard":
+            // Handled in detail pane (fullscreen), shouldn't reach here
+            EmptyView()
         default:
             noteListView
         }
@@ -239,208 +263,10 @@ struct ContentView: View {
         }
     }
     
-    @State private var showingSyntaxHelp = false
 
-    private var tasksListView: some View {
-        let allTasks = vm.allTasks
-        
-        return VStack(spacing: 0) {
-            // Header
-            HStack {
-                Text("All Tasks")
-                     .font(.headline)
-                
-                Spacer()
-                
-                Button(action: { showingSyntaxHelp.toggle() }) {
-                    Image(systemName: "questionmark.circle")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .help("Syntax Guide")
-                .popover(isPresented: $showingSyntaxHelp) {
-                    syntaxHelpView
-                        .frame(width: 300, height: 400)
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            
-            Divider()
-            
-            tasksListContent(allTasks: allTasks)
-        }
-        .navigationTitle("Tasks")
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button(action: vm.insertTaskMarkdown) {
-                    Image(systemName: "plus")
-                }
-                .help("Add Task to Current Note")
-                .disabled(vm.selectedNote == nil)
-            }
-        }
-    }
     
-    private func tasksListContent(allTasks: [(task: TaskItem, sourceNoteID: UUID)]) -> some View {
-        let filtered: [(task: TaskItem, sourceNoteID: UUID)] = {
-            switch taskFilter {
-            case 1: return allTasks.filter { !$0.task.isCompleted }
-            case 2: return allTasks.filter { $0.task.isCompleted }
-            default: return allTasks
-            }
-        }()
-        let activeCount = allTasks.filter { !$0.task.isCompleted }.count
-        let completedCount = allTasks.filter { $0.task.isCompleted }.count
-        
-        return VStack(spacing: 0) {
-            // Filter bar
-            Picker("Filter", selection: $taskFilter) {
-                Text("All (\(allTasks.count))").tag(0)
-                Text("Active (\(activeCount))").tag(1)
-                Text("Done (\(completedCount))").tag(2)
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            
-            Divider()
-            
-            if filtered.isEmpty {
-                 emptyTasksView
-            } else {
-                List {
-                    ForEach(filtered, id: \.task.id) { item in
-                        taskRow(item: item)
-                    }
-                }
-            }
-        }
-    }
-    
-    private var emptyTasksView: some View {
-        VStack(spacing: 10) {
-            Spacer()
-            Image(systemName: taskFilter == 2 ? "checkmark.circle" : "checklist")
-                .font(.system(size: 32, weight: .thin))
-                .foregroundStyle(.quaternary)
-            Text(taskFilter == 2 ? "No completed tasks" : taskFilter == 1 ? "All caught up!" : "No tasks yet")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.tertiary)
-            Text("Add tasks using - [ ] in your notes")
-                .font(.system(size: 11))
-                .foregroundStyle(.quaternary)
-            Spacer()
-        }
-        .frame(maxWidth: .infinity)
-    }
-    
-    private func taskRow(item: (task: TaskItem, sourceNoteID: UUID)) -> some View {
-        HStack(spacing: 10) {
-            // Checkbox — toggles task directly
-            Button {
-                vm.toggleTask(item.task, sourceNoteID: item.sourceNoteID)
-            } label: {
-                Image(systemName: item.task.isCompleted ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 18))
-                    .foregroundStyle(item.task.isCompleted ? .green : .secondary)
-            }
-            .buttonStyle(.plain)
-            
-            // Text area — navigates to note
-            Button {
-                vm.navigateToNote(id: item.sourceNoteID)
-            } label: {
-                HStack(spacing: 0) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(item.task.title)
-                            .font(.system(size: 13, weight: .medium))
-                            .strikethrough(item.task.isCompleted)
-                            .foregroundStyle(item.task.isCompleted ? .secondary : .primary)
-                            .lineLimit(2)
-                        
-                        HStack(spacing: 6) {
-                            // Source note
-                            if let note = vm.notes.first(where: { $0.id == item.sourceNoteID }) {
-                                Label(note.title, systemImage: "doc.text")
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(.tertiary)
-                                    .lineLimit(1)
-                            }
-                            
-                            // Tags
-                            ForEach(item.task.tags.prefix(2), id: \.self) { tag in
-                                Text("#\(tag)")
-                                    .font(.system(size: 10, weight: .medium))
-                                    .foregroundStyle(.blue.opacity(0.8))
-                            }
-                        }
-                    }
-                    
-                    Spacer()
-                    
-                    VStack(alignment: .trailing, spacing: 4) {
-                        // Priority pill
-                        if let priority = item.task.priority {
-                            Text(priority.rawValue.prefix(1).uppercased())
-                                .font(.system(size: 9, weight: .bold))
-                                .foregroundStyle(.white)
-                                .frame(width: 18, height: 18)
-                                .background(Circle().fill(priorityColor(priority)))
-                        }
-                        
+    @State private var ticketViewMode: String = "list" // "list" or "board"
 
-                    }
-                    
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.quaternary)
-                        .padding(.leading, 6)
-                }
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.vertical, 4)
-    }
-    
-    private var syntaxHelpView: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Task Syntax Guide")
-                    .font(.headline)
-                
-
-                
-                Group {
-                    Text("Priority")
-                        .font(.subheadline).bold()
-                    Text("Use `!low`, `!medium`, `!high`, or `!critical`.")
-                        .font(.caption)
-                    Text("Example: `- [ ] Important task !high`")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .padding(4)
-                        .background(Color.secondary.opacity(0.1))
-                        .cornerRadius(4)
-                }
-                
-                Group {
-                    Text("Tags")
-                        .font(.subheadline).bold()
-                    Text("Use `#tagname` for categorization.")
-                        .font(.caption)
-                    Text("Example: `- [ ] Email boss #work`")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .padding(4)
-                        .background(Color.secondary.opacity(0.1))
-                        .cornerRadius(4)
-                }
-            }
-            .padding()
-        }
-    }
-    
     private var ticketsListView: some View {
         let allTickets = vm.allTickets
         let filtered: [(ticket: Ticket, sourceNoteID: UUID)] = {
@@ -457,132 +283,156 @@ struct ContentView: View {
         }()
         
         return VStack(spacing: 0) {
-            // Jira-style status tabs
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 4) {
-                    StatusTab(label: "All", count: allTickets.count, isSelected: ticketFilter == "all", color: .primary) {
-                        ticketFilter = "all"
-                    }
-                    StatusTab(label: "Open", count: statusCounts["open"] ?? 0, isSelected: ticketFilter == "open", color: .blue) {
-                        ticketFilter = "open"
-                    }
-                    StatusTab(label: "In Progress", count: statusCounts["in-progress"] ?? 0, isSelected: ticketFilter == "in-progress", color: .orange) {
-                        ticketFilter = "in-progress"
-                    }
-                    StatusTab(label: "Blocked", count: statusCounts["blocked"] ?? 0, isSelected: ticketFilter == "blocked", color: .red) {
-                        ticketFilter = "blocked"
-                    }
-                    StatusTab(label: "Closed", count: statusCounts["closed"] ?? 0, isSelected: ticketFilter == "closed", color: .green) {
-                        ticketFilter = "closed"
-                    }
+            // Jira-style status tabs + View Switcher
+            VStack(spacing: 0) {
+                HStack {
+                   Picker("View", selection: $ticketViewMode) {
+                       Image(systemName: "list.bullet").tag("list")
+                       Image(systemName: "square.grid.3x3.fill").tag("board")
+                   }
+                   .pickerStyle(.segmented)
+                   .frame(width: 100)
+                   .padding(.leading, 12)
+                   
+                   Spacer()
                 }
-                .padding(.horizontal, 12)
                 .padding(.vertical, 8)
+                
+                if ticketViewMode == "list" {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 4) {
+                            StatusTab(label: "All", count: allTickets.count, isSelected: ticketFilter == "all", color: .primary) {
+                                ticketFilter = "all"
+                            }
+                            StatusTab(label: "Open", count: statusCounts["open"] ?? 0, isSelected: ticketFilter == "open", color: .blue) {
+                                ticketFilter = "open"
+                            }
+                            StatusTab(label: "In Progress", count: statusCounts["in-progress"] ?? 0, isSelected: ticketFilter == "in-progress", color: .orange) {
+                                ticketFilter = "in-progress"
+                            }
+                            StatusTab(label: "Blocked", count: statusCounts["blocked"] ?? 0, isSelected: ticketFilter == "blocked", color: .red) {
+                                ticketFilter = "blocked"
+                            }
+                            StatusTab(label: "Closed", count: statusCounts["closed"] ?? 0, isSelected: ticketFilter == "closed", color: .green) {
+                                ticketFilter = "closed"
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                    }
+                    Divider()
+                }
             }
             
-            Divider()
-            
-            if filtered.isEmpty {
-                VStack(spacing: 10) {
-                    Spacer()
-                    Image(systemName: "ticket")
-                        .font(.system(size: 32, weight: .thin))
-                        .foregroundStyle(.quaternary)
-                    Text(ticketFilter == "all" ? "No tickets" : "No \(ticketFilter) tickets")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.tertiary)
-                    Spacer()
+            if ticketViewMode == "board" {
+                TicketBoardView(vm: vm) { noteID in
+                    vm.navigateToNote(id: noteID)
+                    selectedFolder = "All Notes"
                 }
-                .frame(maxWidth: .infinity)
+                .padding(.top, 8)
             } else {
-                List {
-                    ForEach(filtered, id: \.ticket.id) { item in
-                        Button {
-                            vm.navigateToNote(id: item.sourceNoteID)
-                            selectedFolder = "All Notes"
-                        } label: {
-                            VStack(alignment: .leading, spacing: 8) {
-                                // Top row: ID + Status + Priority
-                                HStack(spacing: 6) {
-                                    // Ticket ID badge
-                                    Text(item.ticket.identifier)
-                                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                        .foregroundStyle(ticketStatusColor(item.ticket.status))
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 2)
-                                        .background(
-                                            RoundedRectangle(cornerRadius: 4)
-                                                .fill(ticketStatusColor(item.ticket.status).opacity(0.1))
-                                        )
-                                    
-                                    Spacer()
-                                    
-                                    // Priority pill
-                                    if let priority = item.ticket.priority {
-                                        HStack(spacing: 3) {
-                                            Image(systemName: priorityIcon(priority))
-                                                .font(.system(size: 9))
-                                            Text(priority.rawValue.capitalized)
-                                                .font(.system(size: 10, weight: .medium))
+                if filtered.isEmpty {
+                    VStack(spacing: 10) {
+                        Spacer()
+                        Image(systemName: "ticket")
+                            .font(.system(size: 32, weight: .thin))
+                            .foregroundStyle(.quaternary)
+                        Text(ticketFilter == "all" ? "No tickets" : "No \(ticketFilter) tickets")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.tertiary)
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity)
+                } else {
+                    List {
+                        ForEach(filtered, id: \.ticket.id) { item in
+                            Button {
+                                vm.navigateToNote(id: item.sourceNoteID)
+                                selectedFolder = "All Notes"
+                            } label: {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    // Top row: ID + Status + Priority
+                                    HStack(spacing: 6) {
+                                        // Ticket ID badge
+                                        Text(item.ticket.identifier)
+                                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                            .foregroundStyle(ticketStatusColor(item.ticket.status))
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(
+                                                RoundedRectangle(cornerRadius: 4)
+                                                    .fill(ticketStatusColor(item.ticket.status).opacity(0.1))
+                                            )
+                                        
+                                        Spacer()
+                                        
+                                        // Priority pill
+                                        if let priority = item.ticket.priority {
+                                            HStack(spacing: 3) {
+                                                Image(systemName: priorityIcon(priority))
+                                                    .font(.system(size: 9))
+                                                Text(priority.rawValue.capitalized)
+                                                    .font(.system(size: 10, weight: .medium))
+                                            }
+                                            .foregroundStyle(priorityColor(priority))
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(
+                                                RoundedRectangle(cornerRadius: 4)
+                                                    .fill(priorityColor(priority).opacity(0.1))
+                                            )
                                         }
-                                        .foregroundStyle(priorityColor(priority))
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 2)
-                                        .background(
-                                            RoundedRectangle(cornerRadius: 4)
-                                                .fill(priorityColor(priority).opacity(0.1))
-                                        )
+                                        
+                                        // Status pill
+                                        Text(ticketStatusLabel(item.ticket.status))
+                                            .font(.system(size: 10, weight: .semibold))
+                                            .foregroundStyle(.white)
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 3)
+                                            .background(
+                                                Capsule().fill(ticketStatusColor(item.ticket.status))
+                                            )
                                     }
                                     
-                                    // Status pill
-                                    Text(ticketStatusLabel(item.ticket.status))
-                                        .font(.system(size: 10, weight: .semibold))
-                                        .foregroundStyle(.white)
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 3)
-                                        .background(
-                                            Capsule().fill(ticketStatusColor(item.ticket.status))
-                                        )
-                                }
-                                
-                                // Title
-                                if let title = item.ticket.title, !title.isEmpty {
-                                    Text(title)
-                                        .font(.system(size: 13, weight: .medium))
-                                        .lineLimit(2)
-                                }
-                                
-                                // Bottom: owner + source note
-                                HStack(spacing: 8) {
-                                    if let owner = item.ticket.owner {
-                                        Label(owner, systemImage: "person.fill")
-                                            .font(.system(size: 10))
-                                            .foregroundStyle(.secondary)
+                                    // Title
+                                    if let title = item.ticket.title, !title.isEmpty {
+                                        Text(title)
+                                            .font(.system(size: 13, weight: .medium))
+                                            .lineLimit(2)
                                     }
                                     
-                                    if let due = item.ticket.dueDate {
-                                        Label {
-                                            Text(due, format: .dateTime.month(.abbreviated).day())
-                                        } icon: {
-                                            Image(systemName: "calendar")
+                                    // Bottom: owner + source note
+                                    HStack(spacing: 8) {
+                                        if let owner = item.ticket.owner {
+                                            Label(owner, systemImage: "person.fill")
+                                                .font(.system(size: 10))
+                                                .foregroundStyle(.secondary)
                                         }
-                                        .font(.system(size: 10))
-                                        .foregroundStyle(due < Date() && item.ticket.status != .closed ? .red : .secondary)
-                                    }
-                                    
-                                    Spacer()
-                                    
-                                    if let note = vm.notes.first(where: { $0.id == item.sourceNoteID }) {
-                                        Label(note.title, systemImage: "doc.text")
+                                        
+                                        if let due = item.ticket.dueDate {
+                                            Label {
+                                                Text(due, format: .dateTime.month(.abbreviated).day())
+                                            } icon: {
+                                                Image(systemName: "calendar")
+                                            }
                                             .font(.system(size: 10))
-                                            .foregroundStyle(.tertiary)
-                                            .lineLimit(1)
+                                            .foregroundStyle(due < Date() && item.ticket.status != .closed ? .red : .secondary)
+                                        }
+                                        
+                                        Spacer()
+                                        
+                                        if let note = vm.notes.first(where: { $0.id == item.sourceNoteID }) {
+                                            Label(note.title, systemImage: "doc.text")
+                                                .font(.system(size: 10))
+                                                .foregroundStyle(.tertiary)
+                                                .lineLimit(1)
+                                        }
                                     }
                                 }
+                                .padding(.vertical, 4)
                             }
-                            .padding(.vertical, 4)
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -597,6 +447,151 @@ struct ContentView: View {
                 .disabled(vm.selectedNote == nil)
             }
         }
+    }
+    
+    // MARK: - Tasks List View
+    
+    private var tasksListView: some View {
+        let all = vm.allTasks
+        let filtered: [(task: TaskItem, sourceNoteID: UUID)] = {
+            switch taskFilter {
+            case "pending": return all.filter { !$0.task.isCompleted }
+            case "done": return all.filter { $0.task.isCompleted }
+            default: return all
+            }
+        }()
+        
+        let pendingCount = all.filter { !$0.task.isCompleted }.count
+        let doneCount = all.filter { $0.task.isCompleted }.count
+        
+        return VStack(spacing: 0) {
+            // Filter tabs
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) {
+                    StatusTab(label: "All", count: all.count, isSelected: taskFilter == "all", color: .primary) {
+                        taskFilter = "all"
+                    }
+                    StatusTab(label: "Pending", count: pendingCount, isSelected: taskFilter == "pending", color: .orange) {
+                        taskFilter = "pending"
+                    }
+                    StatusTab(label: "Done", count: doneCount, isSelected: taskFilter == "done", color: .green) {
+                        taskFilter = "done"
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+            }
+            
+            Divider()
+            
+            if filtered.isEmpty {
+                VStack(spacing: 10) {
+                    Spacer()
+                    Image(systemName: "checklist")
+                        .font(.system(size: 32, weight: .thin))
+                        .foregroundStyle(.quaternary)
+                    Text(taskFilter == "all" ? "No tasks" : "No \(taskFilter) tasks")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.tertiary)
+                    Text("Add tasks with - [ ] in your notes")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.quaternary)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity)
+            } else {
+                List {
+                    ForEach(filtered, id: \.task.id) { item in
+                         HStack(spacing: 10) {
+                            // Checkbox toggle
+                            Button {
+                                vm.toggleTask(item.task, inNoteID: item.sourceNoteID)
+                            } label: {
+                                Image(systemName: item.task.isCompleted ? "checkmark.circle.fill" : "circle")
+                                    .font(.system(size: 18))
+                                    .foregroundStyle(item.task.isCompleted ? .green : .secondary)
+                            }
+                            .buttonStyle(.plain)
+                            
+                            // Entire row — tap to navigate to source note
+                            Button {
+                                vm.navigateToNote(id: item.sourceNoteID)
+                                selectedFolder = "All Notes"
+                            } label: {
+                                HStack(spacing: 8) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        HStack(spacing: 6) {
+                                            // Priority dot
+                                            if let p = item.task.priority {
+                                                Circle()
+                                                    .fill(priorityColor(p))
+                                                    .frame(width: 7, height: 7)
+                                            }
+                                            
+                                            Text(item.task.text)
+                                                .font(.system(size: 13, weight: .medium))
+                                                .strikethrough(item.task.isCompleted)
+                                                .foregroundStyle(item.task.isCompleted ? .secondary : .primary)
+                                                .lineLimit(2)
+                                        }
+                                        
+                                        // Metadata row: date, time, category, source note
+                                        HStack(spacing: 8) {
+                                            if let dueDate = item.task.dueDate {
+                                                let isOverdue = !item.task.isCompleted && Calendar.current.startOfDay(for: dueDate) < Calendar.current.startOfDay(for: Date())
+                                                Label {
+                                                    Text(dueDate, format: .dateTime.month(.abbreviated).day())
+                                                } icon: {
+                                                    Image(systemName: "calendar")
+                                                }
+                                                .font(.system(size: 10, weight: .medium))
+                                                .foregroundStyle(isOverdue ? .red : .secondary)
+                                            }
+                                            
+                                            if let dueTime = item.task.dueTime {
+                                                Label {
+                                                    Text(dueTime, format: .dateTime.hour().minute())
+                                                } icon: {
+                                                    Image(systemName: "clock")
+                                                }
+                                                .font(.system(size: 10))
+                                                .foregroundStyle(.secondary)
+                                            }
+                                            
+                                            if let cat = item.task.category {
+                                                Text(cat)
+                                                    .font(.system(size: 9, weight: .semibold))
+                                                    .foregroundStyle(.blue)
+                                                    .padding(.horizontal, 5)
+                                                    .padding(.vertical, 1)
+                                                    .background(Capsule().fill(.blue.opacity(0.1)))
+                                            }
+                                            
+                                            if let note = vm.notes.first(where: { $0.id == item.sourceNoteID }) {
+                                                Spacer()
+                                                Label(note.title, systemImage: "doc.text")
+                                                    .font(.system(size: 10))
+                                                    .foregroundStyle(.tertiary)
+                                                    .lineLimit(1)
+                                            }
+                                        }
+                                    }
+                                    
+                                    Spacer()
+                                    
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 10, weight: .semibold))
+                                        .foregroundStyle(.quaternary)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+            }
+        }
+        .navigationTitle("Tasks")
     }
     
     // MARK: - Helpers
@@ -778,341 +773,12 @@ struct ContentView: View {
     // MARK: - Dashboard (shown when no note is selected)
     
     private var dashboardView: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                // Header
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Dashboard")
-                        .font(.system(size: 28, weight: .bold))
-                    
-                    HStack(spacing: 16) {
-                        // Task summary pill
-                        HStack(spacing: 5) {
-                            Image(systemName: "checklist")
-                                .font(.system(size: 11))
-                            let active = vm.allTasks.filter { !$0.task.isCompleted }.count
-                            Text("\(active) active task\(active == 1 ? "" : "s")")
-                                .font(.system(size: 12, weight: .medium))
-                        }
-                        .foregroundStyle(.blue)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(
-                            Capsule().fill(.blue.opacity(0.1))
-                        )
-                        
-                        // Ticket summary pill
-                        HStack(spacing: 5) {
-                            Image(systemName: "ticket")
-                                .font(.system(size: 11))
-                            let openTickets = vm.allTickets.filter { $0.ticket.status != .closed }.count
-                            Text("\(openTickets) open ticket\(openTickets == 1 ? "" : "s")")
-                                .font(.system(size: 12, weight: .medium))
-                        }
-                        .foregroundStyle(.orange)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(
-                            Capsule().fill(.orange.opacity(0.1))
-                        )
-                        
-                        Spacer()
-                        
-                        Button(action: vm.createNote) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "plus")
-                                    .font(.system(size: 11, weight: .semibold))
-                                Text("New Note")
-                                    .font(.system(size: 12, weight: .semibold))
-                            }
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 7)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(.blue)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.bottom, 4)
-                
-                // Grid: Tasks & Tickets side by side
-                HStack(alignment: .top, spacing: 20) {
-                    
-                    // ── Tasks Column ──
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Label("Tasks", systemImage: "checklist")
-                                .font(.system(size: 15, weight: .semibold))
-                            Spacer()
-                            Text("\(vm.allTasks.count)")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 7)
-                                .padding(.vertical, 2)
-                                .background(Capsule().fill(.secondary.opacity(0.12)))
-                        }
-                        
-                        Divider()
-                        
-                        let tasks = vm.allTasks
-                        if tasks.isEmpty {
-                            VStack(spacing: 8) {
-                                Image(systemName: "checklist")
-                                    .font(.system(size: 28, weight: .thin))
-                                    .foregroundStyle(.quaternary)
-                                Text("No tasks yet")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundStyle(.tertiary)
-                                Text("Add tasks using - [ ] in your notes")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(.quaternary)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 32)
-                        } else {
-                            LazyVStack(spacing: 6) {
-                                ForEach(tasks.prefix(15), id: \.task.id) { item in
-                                    dashboardTaskCard(item: item)
-                                }
-                                
-                                if tasks.count > 15 {
-                                    Button {
-                                        selectedFolder = "Tasks"
-                                    } label: {
-                                        Text("View all \(tasks.count) tasks →")
-                                            .font(.system(size: 11, weight: .medium))
-                                            .foregroundStyle(.blue)
-                                            .padding(.vertical, 6)
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                        }
-                    }
-                    .padding(16)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(.background)
-                            .shadow(color: .black.opacity(0.06), radius: 8, x: 0, y: 2)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(.separator.opacity(0.3), lineWidth: 1)
-                    )
-                    
-                    // ── Tickets Column ──
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Label("Tickets", systemImage: "ticket")
-                                .font(.system(size: 15, weight: .semibold))
-                            Spacer()
-                            Text("\(vm.allTickets.count)")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 7)
-                                .padding(.vertical, 2)
-                                .background(Capsule().fill(.secondary.opacity(0.12)))
-                        }
-                        
-                        Divider()
-                        
-                        let tickets = vm.allTickets
-                        if tickets.isEmpty {
-                            VStack(spacing: 8) {
-                                Image(systemName: "ticket")
-                                    .font(.system(size: 28, weight: .thin))
-                                    .foregroundStyle(.quaternary)
-                                Text("No tickets yet")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundStyle(.tertiary)
-                                Text("Add ticket blocks in your notes")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(.quaternary)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 32)
-                        } else {
-                            LazyVStack(spacing: 6) {
-                                ForEach(tickets.prefix(15), id: \.ticket.id) { item in
-                                    dashboardTicketCard(item: item)
-                                }
-                                
-                                if tickets.count > 15 {
-                                    Button {
-                                        selectedFolder = "Tickets"
-                                    } label: {
-                                        Text("View all \(tickets.count) tickets →")
-                                            .font(.system(size: 11, weight: .medium))
-                                            .foregroundStyle(.blue)
-                                            .padding(.vertical, 6)
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                        }
-                    }
-                    .padding(16)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(.background)
-                            .shadow(color: .black.opacity(0.06), radius: 8, x: 0, y: 2)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(.separator.opacity(0.3), lineWidth: 1)
-                    )
-                }
-            }
-            .padding(32)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        #if os(macOS)
-        .background(Color(nsColor: .windowBackgroundColor))
-        #else
-        .background(Color(uiColor: .systemBackground))
-        #endif
-    }
-    
-    private func dashboardTaskCard(item: (task: TaskItem, sourceNoteID: UUID)) -> some View {
-        HStack(spacing: 10) {
-            // Checkbox
-            Button {
-                vm.toggleTask(item.task, sourceNoteID: item.sourceNoteID)
-            } label: {
-                Image(systemName: item.task.isCompleted ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 16))
-                    .foregroundStyle(item.task.isCompleted ? .green : .secondary)
-            }
-            .buttonStyle(.plain)
-            
-            // Task text — click to navigate
-            Button {
-                vm.navigateToNote(id: item.sourceNoteID)
-                selectedFolder = "All Notes"
-            } label: {
-                HStack(spacing: 0) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(item.task.title)
-                            .font(.system(size: 12, weight: .medium))
-                            .strikethrough(item.task.isCompleted)
-                            .foregroundStyle(item.task.isCompleted ? .secondary : .primary)
-                            .lineLimit(1)
-                        
-                        if let note = vm.notes.first(where: { $0.id == item.sourceNoteID }) {
-                            Text(note.title)
-                                .font(.system(size: 10))
-                                .foregroundStyle(.tertiary)
-                                .lineLimit(1)
-                        }
-                    }
-                    
-                    Spacer(minLength: 4)
-                    
-                    HStack(spacing: 6) {
-                        // Priority
-                        if let priority = item.task.priority {
-                            Text(priority.rawValue.prefix(1).uppercased())
-                                .font(.system(size: 8, weight: .bold))
-                                .foregroundStyle(.white)
-                                .frame(width: 16, height: 16)
-                                .background(Circle().fill(priorityColor(priority)))
-                        }
-                        
-
-                    }
-                }
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(item.task.isCompleted
-                      ? Color.secondary.opacity(0.04)
-                      : Color.blue.opacity(0.03))
-        )
-    }
-    
-    private func dashboardTicketCard(item: (ticket: Ticket, sourceNoteID: UUID)) -> some View {
-        Button {
-            vm.navigateToNote(id: item.sourceNoteID)
+        DashboardView(notesViewModel: vm) { noteId in
+            vm.navigateToNote(id: noteId)
             selectedFolder = "All Notes"
-        } label: {
-            HStack(spacing: 10) {
-                // Status color bar
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(ticketStatusColor(item.ticket.status))
-                    .frame(width: 4, height: 36)
-                
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        // Ticket identifier
-                        Text(item.ticket.identifier)
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .foregroundStyle(ticketStatusColor(item.ticket.status))
-                        
-                        Spacer()
-                        
-                        // Status pill
-                        Text(ticketStatusLabel(item.ticket.status))
-                            .font(.system(size: 8, weight: .bold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(
-                                Capsule().fill(ticketStatusColor(item.ticket.status))
-                            )
-                    }
-                    
-                    if let title = item.ticket.title, !title.isEmpty {
-                        Text(title)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                    }
-                    
-                    HStack(spacing: 8) {
-                        if let owner = item.ticket.owner {
-                            Label(owner, systemImage: "person.fill")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.tertiary)
-                        }
-                        
-                        if let priority = item.ticket.priority {
-                            HStack(spacing: 2) {
-                                Image(systemName: priorityIcon(priority))
-                                    .font(.system(size: 8))
-                                Text(priority.rawValue.capitalized)
-                                    .font(.system(size: 9, weight: .medium))
-                            }
-                            .foregroundStyle(priorityColor(priority))
-                        }
-                        
-                        Spacer()
-                        
-                        if let note = vm.notes.first(where: { $0.id == item.sourceNoteID }) {
-                            Text(note.title)
-                                .font(.system(size: 9))
-                                .foregroundStyle(.quaternary)
-                                .lineLimit(1)
-                        }
-                    }
-                }
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(ticketStatusColor(item.ticket.status).opacity(0.04))
-            )
         }
-        .buttonStyle(.plain)
     }
-    
+
     private func noteMetadataBar(note: Note) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             // Date row
@@ -1361,126 +1027,6 @@ struct ContentView: View {
 
 // MARK: - Subviews
 
-struct TaskRow: View {
-    let task: TaskItem
-    let onToggle: () -> Void
-    
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Button(action: onToggle) {
-                Image(systemName: task.isCompleted ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(task.isCompleted ? .green : .secondary)
-                    .font(.system(size: 14))
-            }
-            .buttonStyle(.plain)
-            
-            VStack(alignment: .leading, spacing: 2) {
-                Text(task.title)
-                    .strikethrough(task.isCompleted)
-                    .foregroundStyle(task.isCompleted ? .secondary : .primary)
-                    .font(.system(size: 13))
-                
-            }
-        }
-        .padding(.vertical, 2)
-    }
-}
-
-struct TicketRow: View {
-    let ticket: Ticket
-    
-    var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "ticket.fill")
-                .foregroundStyle(.blue)
-                .font(.system(size: 12))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(ticket.identifier)
-                    .font(.system(size: 12, weight: .semibold))
-                if let title = ticket.title {
-                    Text(title)
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-        .padding(.vertical, 2)
-    }
-}
-
-struct NoteRow: View {
-    let note: Note
-    
-    private var previewText: String {
-        let cleaned = note.content
-            .components(separatedBy: .newlines)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-            .prefix(2)
-            .joined(separator: " ")
-        if cleaned.count > 60 {
-            return String(cleaned.prefix(60)) + "…"
-        }
-        return cleaned.isEmpty ? "No additional text" : cleaned
-    }
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(note.title)
-                .font(.system(size: 13, weight: .semibold))
-                .lineLimit(1)
-            
-            HStack(spacing: 4) {
-                Text(note.modifiedAt, format: .dateTime.hour().minute())
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                
-                Text(previewText)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-            }
-        }
-        .padding(.vertical, 1)
-    }
-}
-
-private struct StatusTab: View {
-    let label: String
-    let count: Int
-    let isSelected: Bool
-    let color: Color
-    let action: () -> Void
-    
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 4) {
-                HStack(spacing: 4) {
-                    Text(label)
-                        .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
-                        .foregroundStyle(isSelected ? color : .secondary)
-                    
-                    if count > 0 {
-                        Text("\(count)")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(isSelected ? .white : .secondary)
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
-                            .background(
-                                Capsule().fill(isSelected ? color : Color.secondary.opacity(0.2))
-                            )
-                    }
-                }
-                
-                Rectangle()
-                    .fill(isSelected ? color : Color.clear)
-                    .frame(height: 2)
-                    .cornerRadius(1)
-            }
-            .padding(.horizontal, 6)
-        }
-        .buttonStyle(.plain)
-    }
-}
 
 private struct ErrorWrapper: Identifiable { let id = UUID(); let message: String }
 

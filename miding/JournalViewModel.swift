@@ -12,16 +12,15 @@ class NotesViewModel: ObservableObject {
                 if let note = selectedNote {
                     parseCurrentNote(note.content)
                 } else {
-                    currentNoteTasks = []
                     currentNoteTickets = []
                 }
             }
         }
     }
     
-    // Tasks/tickets from the currently selected note
-    @Published var currentNoteTasks: [TaskItem] = []
+    // Tickets from the currently selected note
     @Published var currentNoteTickets: [Ticket] = []
+    @Published var currentNoteTasks: [TaskItem] = []
     
     // Incremented when content is changed programmatically (not by typing)
     @Published var contentVersion: Int = 0
@@ -29,25 +28,27 @@ class NotesViewModel: ObservableObject {
     @Published var errorMessage: String?
     
     // Cache for parsed items to improve performance
-    private var tasksCache: [UUID: [TaskItem]] = [:]
     private var ticketsCache: [UUID: [Ticket]] = [:]
+    private var tasksCache: [UUID: [TaskItem]] = [:]
     
-    // Aggregated tasks/tickets across ALL notes, with source note ID
-    var allTasks: [(task: TaskItem, sourceNoteID: UUID)] {
-        notes.flatMap { note in
-            (tasksCache[note.id] ?? []).map { ($0, note.id) }
-        }
-    }
-    
+    // Aggregated tickets across ALL notes, with source note ID
     var allTickets: [(ticket: Ticket, sourceNoteID: UUID)] {
         notes.flatMap { note in
             (ticketsCache[note.id] ?? []).map { ($0, note.id) }
         }
     }
     
+    // Aggregated tasks across ALL notes, with source note ID
+    var allTasks: [(task: TaskItem, sourceNoteID: UUID)] {
+        notes.flatMap { note in
+            (tasksCache[note.id] ?? []).map { ($0, note.id) }
+        }
+    }
+    
     // Convenience counts
-    var totalTaskCount: Int { allTasks.count }
     var totalTicketCount: Int { allTickets.count }
+    var totalTaskCount: Int { allTasks.count }
+    var pendingTaskCount: Int { allTasks.filter { !$0.task.isCompleted }.count }
     
     // Aggregated history across ALL notes, sorted newest first
     var allHistory: [(entry: NoteHistoryEntry, noteTitle: String, noteID: UUID)] {
@@ -98,8 +99,8 @@ class NotesViewModel: ObservableObject {
                         loadedNotes.append(note)
                         // Populate cache
                         let result = parser.parse(markdown: note.content)
-                        tasksCache[note.id] = result.tasks
                         ticketsCache[note.id] = result.tickets
+                        tasksCache[note.id] = result.tasks
                     }
                 } else if filename.hasPrefix("journal_") && filename.hasSuffix(".json") {
                     // Migration / Legacy Support
@@ -117,8 +118,8 @@ class NotesViewModel: ObservableObject {
                         loadedNotes.append(note)
                         // Populate cache
                         let result = parser.parse(markdown: note.content)
-                        tasksCache[note.id] = result.tasks
                         ticketsCache[note.id] = result.tickets
+                        tasksCache[note.id] = result.tasks
                     }
                 }
             }
@@ -148,8 +149,8 @@ class NotesViewModel: ObservableObject {
         newNote.history.append(entry)
         notes.insert(newNote, at: 0)
         selectedNote = newNote
-        tasksCache[newNote.id] = []
         ticketsCache[newNote.id] = []
+        tasksCache[newNote.id] = []
         saveNote(newNote)
     }
     
@@ -166,8 +167,8 @@ class NotesViewModel: ObservableObject {
         
         // Update cache immediately
         let result = parser.parse(markdown: content)
-        tasksCache[note.id] = result.tasks
         ticketsCache[note.id] = result.tickets
+        tasksCache[note.id] = result.tasks
         
         if let index = notes.firstIndex(where: { $0.id == note.id }) {
             notes[index] = note
@@ -276,89 +277,11 @@ class NotesViewModel: ObservableObject {
         // (Implementation omitted for brevity, but would be good to clean up)
     }
 
-    func toggleTask(_ task: TaskItem, sourceNoteID: UUID) {
-        guard var note = notes.first(where: { $0.id == sourceNoteID }) else { return }
-        
-        var lines = note.content.components(separatedBy: "\n")
-        
-        // Safety check: index must be within bounds
-        guard task.index < lines.count else {
-            print("Error: Task index \(task.index) out of bounds")
-            return
-        }
-        
-        let targetLine = lines[task.index]
-        let trimmedTarget = targetLine.trimmingCharacters(in: .whitespaces)
-        
-        // Verify identity: The line at index must match the original text we parsed
-        // We use trimmed comparison to ignore indentation differences if any (though parser stores trimmed)
-        if trimmedTarget != task.originalText {
-             // Fallback: The file might have changed. Try to find the line?
-             // For now, fail safely to avoid checking the wrong box.
-             print("Error: Task line mismatch at index \(task.index). Expected '\(task.originalText)', found '\(trimmedTarget)'")
-             return
-        }
-        
-        // Toggle the checkbox
-        // We need to preserve original indentation
-        if task.isCompleted {
-            lines[task.index] = targetLine.replacingOccurrences(of: "- [x] ", with: "- [ ] ")
-        } else {
-            lines[task.index] = targetLine.replacingOccurrences(of: "- [ ] ", with: "- [x] ")
-        }
-        
-        // Reconstruct content
-        let newContent = lines.joined(separator: "\n")
-        note.content = newContent
-        note.modifiedAt = Date()
-        
-        // Update Cache
-        let result = parser.parse(markdown: newContent)
-        tasksCache[note.id] = result.tasks
-        ticketsCache[note.id] = result.tickets
-        
-        if let noteIndex = notes.firstIndex(where: { $0.id == note.id }) {
-            notes[noteIndex] = note
-        }
-        
-        // If this is the selected note, update it too
-        if selectedNote?.id == note.id {
-            selectedNote = note
-            parseCurrentNote(newContent)
-        }
-        
-        saveNote(note)
-        contentVersion += 1
-    }
-    
-
-    
-    // Navigate to the note that contains a specific task/ticket
+    // Navigate to the note that contains a specific ticket
     func navigateToNote(id: UUID) {
         if let note = notes.first(where: { $0.id == id }) {
             selectedNote = note
         }
-    }
-    
-    // Insert a new task markdown template into the current note
-    func insertTaskMarkdown() {
-        guard var note = selectedNote else { return }
-        let template = "\n- [ ] \n"
-        note.content += template
-        note.modifiedAt = Date()
-        
-        // Update Cache
-        let result = parser.parse(markdown: note.content)
-        tasksCache[note.id] = result.tasks
-        ticketsCache[note.id] = result.tickets
-        
-        if let index = notes.firstIndex(where: { $0.id == note.id }) {
-            notes[index] = note
-        }
-        selectedNote = note
-        parseCurrentNote(note.content)
-        saveNote(note)
-        contentVersion += 1
     }
     
     // Insert a new ticket markdown template into the current note
@@ -370,8 +293,8 @@ class NotesViewModel: ObservableObject {
         
         // Update Cache
         let result = parser.parse(markdown: note.content)
-        tasksCache[note.id] = result.tasks
         ticketsCache[note.id] = result.tickets
+        tasksCache[note.id] = result.tasks
         
         if let index = notes.firstIndex(where: { $0.id == note.id }) {
             notes[index] = note
@@ -382,10 +305,93 @@ class NotesViewModel: ObservableObject {
         contentVersion += 1
     }
     
+    // Toggle a task checkbox and persist the change
+    func toggleTask(_ task: TaskItem, inNoteID noteID: UUID) {
+        guard var note = notes.first(where: { $0.id == noteID }) else { return }
+        note.content = MarkdownParser.toggleTask(in: note.content, atLineIndex: task.lineIndex)
+        note.modifiedAt = Date()
+        
+        // Update cache
+        let result = parser.parse(markdown: note.content)
+        ticketsCache[note.id] = result.tickets
+        tasksCache[note.id] = result.tasks
+        
+        if let index = notes.firstIndex(where: { $0.id == note.id }) {
+            notes[index] = note
+        }
+        if selectedNote?.id == note.id {
+            selectedNote = note
+            parseCurrentNote(note.content)
+            contentVersion += 1
+        }
+        saveNote(note)
+    }
+    
+    func updateTicketStatus(_ ticket: Ticket, to status: TicketStatus, inNoteID noteID: UUID) {
+        // 1. Find the note
+        guard var note = notes.first(where: { $0.id == noteID }) else { return }
+        
+        // 2. Validate line numbers
+        guard let start = ticket.blockStartLine, let end = ticket.blockEndLine else {
+            errorMessage = "Cannot update ticket: missing line information."
+            return
+        }
+        
+        // 3. Update the content
+        var lines = note.content.components(separatedBy: .newlines)
+        guard start < lines.count, end < lines.count, start <= end else {
+            errorMessage = "Cannot update ticket: content has changed."
+            return
+        }
+        
+        var updated = false
+        // Search for "Status: ..." within the block and replace it
+        for i in start...end {
+            let line = lines[i]
+            if line.trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("status:") {
+                // Maintain indentation if any
+                let prefix = line.prefix(while: { $0.isWhitespace })
+                lines[i] = "\(prefix)Status: \(status.rawValue)"
+                updated = true
+                break
+            }
+        }
+        
+        // If "Status:" line wasn't found (unlikely for a valid ticket), we could insert it, 
+        // but for now let's just abort or handle gracefully.
+        if !updated {
+             // Fallback: insert status before the end of the block? 
+             // Or maybe the block didn't have a status field?
+             // Let's just return for now.
+             errorMessage = "Could not find Status field in ticket block."
+             return
+        }
+        
+        note.content = lines.joined(separator: "\n")
+        note.modifiedAt = Date()
+        
+        // 4. Update Cache & State
+        let result = parser.parse(markdown: note.content)
+        ticketsCache[note.id] = result.tickets
+        tasksCache[note.id] = result.tasks
+        
+        if let index = notes.firstIndex(where: { $0.id == note.id }) {
+            notes[index] = note
+        }
+        
+        if selectedNote?.id == note.id {
+            selectedNote = note
+            parseCurrentNote(note.content)
+            contentVersion += 1
+        }
+        
+        saveNote(note)
+    }
+
     private func parseCurrentNote(_ text: String) {
         let result = parser.parse(markdown: text)
-        self.currentNoteTasks = result.tasks
         self.currentNoteTickets = result.tickets
+        self.currentNoteTasks = result.tasks
     }
     
     private func formatDate(_ date: Date) -> String {
@@ -394,3 +400,4 @@ class NotesViewModel: ObservableObject {
         return f.string(from: date)
     }
 }
+
