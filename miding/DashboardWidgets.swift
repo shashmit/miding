@@ -30,7 +30,7 @@ struct TaskThreeDayView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("3-Day Task View")
+            Text("Proximity Task")
                 .font(.headline)
             
             VStack(spacing: 12) {
@@ -47,14 +47,16 @@ struct TaskThreeDayView: View {
                 // Tomorrow
                 DayRow(title: "Tomorrow", date: Calendar.current.date(byAdding: .day, value: 1, to: Date())!, tasks: tomorrowTasks, color: .orange)
             }
+            Spacer()
         }
+        .frame(height: 340)
         .padding(20)
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 24))
         .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: 5)
         .overlay(
             RoundedRectangle(cornerRadius: 24)
-                .stroke(Color.white.opacity(0.3), lineWidth: 1)
+                .stroke(Color.primary.opacity(0.1), lineWidth: 1)
         )
     }
     
@@ -128,8 +130,9 @@ struct TicketListView: View {
             }
             
             if tickets.isEmpty {
+                Spacer()
                 ContentUnavailableView("No tickets found", systemImage: "ticket")
-                    .frame(height: 100)
+                Spacer()
             } else {
                 ForEach(tickets.prefix(5), id: \.ticket.id) { item in
                     TicketRow(ticket: item.ticket)
@@ -149,15 +152,17 @@ struct TicketListView: View {
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.top, 4)
                 }
+                Spacer()
             }
         }
+        .frame(height: 340)
         .padding(20)
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 24))
         .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: 5)
         .overlay(
             RoundedRectangle(cornerRadius: 24)
-                .stroke(Color.white.opacity(0.3), lineWidth: 1)
+                .stroke(Color.primary.opacity(0.1), lineWidth: 1)
         )
     }
 }

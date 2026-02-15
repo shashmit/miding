@@ -74,9 +74,6 @@ struct TaskTimelineView: View {
     private var headerBar: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Workstream")
-                    .font(.system(size: 22, weight: .bold))
-                
                 HStack(spacing: 12) {
                     let pending = datedTasks.filter { !$0.task.isCompleted }.count
                     let overdue = datedTasks.filter {

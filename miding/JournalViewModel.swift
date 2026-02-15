@@ -90,22 +90,29 @@ class NotesViewModel: ObservableObject {
             let fileURLs = try fileManager.contentsOfDirectory(at: documentsURL, includingPropertiesForKeys: nil)
             var loadedNotes: [Note] = []
             
-            for url in fileURLs {
-                let filename = url.lastPathComponent
-                
-                if filename.hasPrefix("note_") && filename.hasSuffix(".json") {
-                    if let data = try? Data(contentsOf: url),
-                       let note = try? JSONDecoder().decode(Note.self, from: data) {
-                        loadedNotes.append(note)
-                        // Populate cache
-                        let result = parser.parse(markdown: note.content)
-                        ticketsCache[note.id] = result.tickets
-                        tasksCache[note.id] = result.tasks
-                    }
-                } else if filename.hasPrefix("journal_") && filename.hasSuffix(".json") {
-                    // Migration / Legacy Support
-                    if let data = try? Data(contentsOf: url),
-                       let entry = try? JSONDecoder().decode(JournalEntry.self, from: data) {
+            let noteFiles = fileURLs.filter { $0.lastPathComponent.hasPrefix("note_") && $0.lastPathComponent.hasSuffix(".json") }
+            let journalFiles = fileURLs.filter { $0.lastPathComponent.hasPrefix("journal_") && $0.lastPathComponent.hasSuffix(".json") }
+            
+            // 1. Load existing notes first
+            for url in noteFiles {
+                if let data = try? Data(contentsOf: url),
+                   let note = try? JSONDecoder().decode(Note.self, from: data) {
+                    loadedNotes.append(note)
+                    // Populate cache
+                    let result = parser.parse(markdown: note.content)
+                    ticketsCache[note.id] = result.tickets
+                    tasksCache[note.id] = result.tasks
+                }
+            }
+            
+            // 2. Load legacy journals only if not already present
+            for url in journalFiles {
+                // Migration / Legacy Support
+                if let data = try? Data(contentsOf: url),
+                   let entry = try? JSONDecoder().decode(JournalEntry.self, from: data) {
+                    
+                    // Check if we already loaded this note (by ID)
+                    if !loadedNotes.contains(where: { $0.id == entry.id }) {
                         let note = Note(
                             id: entry.id,
                             title: "Journal \(formatDate(entry.date))",
@@ -120,6 +127,9 @@ class NotesViewModel: ObservableObject {
                         let result = parser.parse(markdown: note.content)
                         ticketsCache[note.id] = result.tickets
                         tasksCache[note.id] = result.tasks
+                        
+                        // Save the migrated note as a standard note immediately
+                        saveNote(note)
                     }
                 }
             }
@@ -137,13 +147,14 @@ class NotesViewModel: ObservableObject {
         }
     }
     
-    func createNote() {
+    func createNote(isJournal: Bool = false) {
+        let title = isJournal ? "Journal \(formatDate(Date()))" : "New Note"
         var newNote = Note(
-            title: "New Note",
+            title: title,
             content: "",
             createdAt: Date(),
             modifiedAt: Date(),
-            journalDate: nil
+            journalDate: isJournal ? Date() : nil
         )
         let entry = NoteHistoryEntry(timestamp: Date(), title: newNote.title, contentSnapshot: "", summary: "Created")
         newNote.history.append(entry)
@@ -274,7 +285,14 @@ class NotesViewModel: ObservableObject {
         try? fileManager.removeItem(at: url)
         
         // Also try legacy path if it exists
-        // (Implementation omitted for brevity, but would be good to clean up)
+        let legacyUrl = documentsURL.appendingPathComponent("journal_\(note.id.uuidString).json")
+        try? fileManager.removeItem(at: legacyUrl)
+        
+        if let date = note.journalDate {
+            let dateStr = formatDate(date)
+            let dateUrl = documentsURL.appendingPathComponent("journal_\(dateStr).json")
+            try? fileManager.removeItem(at: dateUrl)
+        }
     }
 
     // Navigate to the note that contains a specific ticket
@@ -344,27 +362,54 @@ class NotesViewModel: ObservableObject {
             return
         }
         
-        var updated = false
-        // Search for "Status: ..." within the block and replace it
+        var statusIndex: Int?
+        var closedIndex: Int?
+        
+        // Find indices
         for i in start...end {
             let line = lines[i]
-            if line.trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("status:") {
-                // Maintain indentation if any
-                let prefix = line.prefix(while: { $0.isWhitespace })
-                lines[i] = "\(prefix)Status: \(status.rawValue)"
-                updated = true
-                break
+            let trimmed = line.trimmingCharacters(in: .whitespaces).lowercased()
+            if trimmed.hasPrefix("status:") {
+                statusIndex = i
+            } else if trimmed.hasPrefix("closed:") {
+                closedIndex = i
             }
         }
         
-        // If "Status:" line wasn't found (unlikely for a valid ticket), we could insert it, 
-        // but for now let's just abort or handle gracefully.
-        if !updated {
-             // Fallback: insert status before the end of the block? 
-             // Or maybe the block didn't have a status field?
-             // Let's just return for now.
-             errorMessage = "Could not find Status field in ticket block."
-             return
+        // Update Status line
+        if let idx = statusIndex {
+            let line = lines[idx]
+            let prefix = line.prefix(while: { $0.isWhitespace })
+            lines[idx] = "\(prefix)Status: \(status.rawValue)"
+        } else {
+            errorMessage = "Could not find Status field in ticket block."
+            return
+        }
+        
+        // Handle Closed Date line
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        
+        if status == .closed {
+            let dateStr = dateFormatter.string(from: Date())
+            if let idx = closedIndex {
+                // Update existing Closed line
+                let line = lines[idx]
+                let prefix = line.prefix(while: { $0.isWhitespace })
+                lines[idx] = "\(prefix)Closed: \(dateStr)"
+            } else {
+                // Insert new Closed line after Status
+                if let idx = statusIndex {
+                    let line = lines[idx]
+                    let prefix = line.prefix(while: { $0.isWhitespace })
+                    lines.insert("\(prefix)Closed: \(dateStr)", at: idx + 1)
+                }
+            }
+        } else {
+            // Remove Closed line if present (since it's no longer closed)
+            if let idx = closedIndex {
+                lines.remove(at: idx)
+            }
         }
         
         note.content = lines.joined(separator: "\n")

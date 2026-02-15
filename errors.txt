@@ -1,2 +1,0 @@
-/Users/shashmit/Project/miding/miding/ContentView.swift:718:21: error: cannot find 'editorTopBar' in scope
-/Users/shashmit/Project/miding/miding/ContentView.swift:733:29: error: cannot find 'noteMetadataBar' in scope

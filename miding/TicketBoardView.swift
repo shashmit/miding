@@ -28,7 +28,11 @@ struct TicketBoardView: View {
             }
             .padding(24)
         }
-        .background(Color.white) // Clean white canvas
+        #if os(macOS)
+        .background(Color(nsColor: .windowBackgroundColor))
+        #else
+        .background(Color(uiColor: .systemGroupedBackground))
+        #endif
     }
     
     private func ticketsFor(_ status: TicketStatus) -> [(ticket: Ticket, sourceNoteID: UUID)] {
@@ -146,20 +150,20 @@ struct TicketCard: View {
             if let title = item.ticket.title, !title.isEmpty {
                 Text(title)
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.primary)
+                    .foregroundStyle(.primary)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
                 Text(item.ticket.body?.prefix(30) ?? "Untitled")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
             }
             
             // Description / Body Preview
             if let body = item.ticket.body, !body.isEmpty {
                 Text(body)
                     .font(.system(size: 12))
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -171,7 +175,7 @@ struct TicketCard: View {
                 // ID
                 Text(item.ticket.identifier)
                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                   .foregroundColor(.secondary)
+                   .foregroundStyle(.secondary)
                 
                 Spacer()
                 
@@ -183,7 +187,7 @@ struct TicketCard: View {
                             .frame(width: 6, height: 6)
                         Text(priority.rawValue.capitalized)
                             .font(.system(size: 11))
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                     }
                 }
                 
@@ -191,14 +195,18 @@ struct TicketCard: View {
                 if let owner = item.ticket.owner {
                     Text(initials(for: owner))
                         .font(.system(size: 9, weight: .bold))
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                         .frame(width: 18, height: 18)
                         .background(Circle().fill(Color.gray))
                 }
             }
         }
         .padding(16)
-        .background(Color.white)
+        #if os(macOS)
+        .background(Color(nsColor: .controlBackgroundColor))
+        #else
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        #endif
         .cornerRadius(12)
         // Clean border instead of heavy shadow
         .overlay(
@@ -215,8 +223,13 @@ struct TicketCard: View {
         .draggable(item.ticket.id.uuidString) {
              Text(item.ticket.title ?? "Ticket")
                  .font(.headline)
+                 .foregroundStyle(.primary)
                  .padding()
-                 .background(Color.white)
+                 #if os(macOS)
+                 .background(Color(nsColor: .controlBackgroundColor))
+                 #else
+                 .background(Color(uiColor: .secondarySystemGroupedBackground))
+                 #endif
                  .cornerRadius(10)
                  .shadow(radius: 5)
         }

@@ -25,8 +25,10 @@ class StatisticsViewModel: ObservableObject {
     @Published var activityHeatmap: [DailyActivity] = []
     
     // Graph data
-    @Published var ticketFlow: [(date: Date, new: Int, closed: Int)] = []
     @Published var totalActivityHistory: [(date: Date, count: Int)] = []
+    
+    // Activity Overview Counts
+    @Published var activityCounts: (journal: Int, task: Int, ticket: Int, note: Int) = (0, 0, 0, 0)
     
     // Detailed History for Multi-line Chart
     @Published var taskHistory: [(date: Date, count: Int)] = []
@@ -42,6 +44,7 @@ class StatisticsViewModel: ObservableObject {
     // Gradient Bias (-1.0 to 1.0)
     @Published var gradientBias: Double = 0.0
     
+    private let parser = MarkdownParser()
     private var cancellables = Set<AnyCancellable>()
     let notesViewModel: NotesViewModel
     
@@ -75,36 +78,17 @@ class StatisticsViewModel: ObservableObject {
         
         // 2. Ticket Stats
         totalTickets = tickets.count
-        let closedCount = tickets.filter { $0.closedDate != nil }.count
+        let closedCount = tickets.filter { $0.status == .closed }.count
         ticketCompletionRate = totalTickets > 0 ? Double(closedCount) / Double(totalTickets) : 0
         
-        // 3. Ticket Flow (Last 14 days)
-        var flowData: [(date: Date, new: Int, closed: Int)] = []
-        let calendar = Calendar.current
-        let today = Date()
-        for i in 0..<14 {
-            if let date = calendar.date(byAdding: .day, value: -i, to: today) {
-                // New tickets
-                let newCount = tickets.filter {
-                    guard let d = $0.createdDate else { return false }
-                    return calendar.isDate(d, inSameDayAs: date)
-                }.count
-                // Closed tickets
-                let closedCount = tickets.filter {
-                    guard let d = $0.closedDate else { return false }
-                    return calendar.isDate(d, inSameDayAs: date)
-                }.count
-                
-                flowData.append((date: date, new: newCount, closed: closedCount))
-            }
-        }
-        ticketFlow = flowData.reversed()
-        
-        // 3b. Activity Flow (Last 14 days)
+        // 3. Activity Flow (Last 14 days)
         var activityData: [(date: Date, count: Int)] = []
         var tData: [(date: Date, count: Int)] = []
         var kData: [(date: Date, count: Int)] = []
         var jData: [(date: Date, count: Int)] = []
+        
+        let calendar = Calendar.current
+        let today = Date()
         
         for i in 0..<14 {
             if let date = calendar.date(byAdding: .day, value: -i, to: today) {
@@ -241,6 +225,14 @@ class StatisticsViewModel: ObservableObject {
             .sorted { $0.count > $1.count }
             .prefix(10)
             .map { $0 }
+
+        // 7. Activity Overview Counts
+        let journalCount = notesViewModel.journalNotes.count
+        let noteCount = notesViewModel.notes.filter { $0.journalDate == nil }.count
+        // use total count for tasks/tickets, not just completed/closed
+        let allTasksCount = tasks.count
+        let allTicketsCount = tickets.count
+        activityCounts = (journal: journalCount, task: allTasksCount, ticket: allTicketsCount, note: noteCount)
     }
 }
 

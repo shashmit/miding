@@ -19,8 +19,40 @@ struct ContentView: View {
     @State private var editorText = ""
     @State private var editorTitle = ""
     @State private var showNoteHistory = false
+    @State private var isZenMode = false
 
     var body: some View {
+        ZStack {
+            if !isZenMode {
+                mainLayout
+                    .transition(.opacity)
+            }
+            
+            if isZenMode {
+                editorView
+                    #if os(macOS)
+                    .background(Color(nsColor: .windowBackgroundColor))
+                    #else
+                    .background(Color(uiColor: .systemBackground))
+                    #endif
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                    .zIndex(100)
+            }
+        }
+        .frame(minWidth: 900, minHeight: 600)
+        .alert(item: Binding(get: {
+            vm.errorMessage.map { ErrorWrapper(message: $0) }
+        }, set: { _ in vm.errorMessage = nil })) { wrapper in
+            Alert(title: Text("Error"), message: Text(wrapper.message))
+        }
+        .onChange(of: selectedFolder) { _, newValue in
+            if ["Dashboard", "Workstream", "Tasks", "Tickets"].contains(newValue) {
+                vm.selectedNote = nil
+            }
+        }
+    }
+
+    private var mainLayout: some View {
         Group {
             if selectedFolder == "Dashboard" || selectedFolder == "Workstream" || selectedFolder == "Tasks" || selectedFolder == "Tickets" {
                 NavigationSplitView {
@@ -35,7 +67,7 @@ struct ContentView: View {
                         #if os(macOS)
                         .toolbar(.hidden, for: .windowToolbar)
                         #endif
-                        .navigationTitle("")
+                        .navigationTitle("Workstream")
                     } else if selectedFolder == "Tasks" {
                         tasksListView
                         #if os(macOS)
@@ -51,7 +83,28 @@ struct ContentView: View {
                         #if os(macOS)
                         .toolbar(.hidden, for: .windowToolbar)
                         #endif
-                        .navigationTitle("")
+                        .navigationTitle("Dashboard")
+                        .toolbar {
+                            ToolbarItem(placement: .primaryAction) {
+                                HStack {
+                                    Button {
+                                        vm.createNote(isJournal: true)
+                                        selectedFolder = "Journal"
+                                    } label: {
+                                        Label("New Journal", systemImage: "book.closed")
+                                    }
+                                    .help("New Journal Entry")
+                                    
+                                    Button {
+                                        vm.createNote(isJournal: false)
+                                        selectedFolder = "All Notes"
+                                    } label: {
+                                        Label("New Note", systemImage: "square.and.pencil")
+                                    }
+                                    .help("New Note")
+                                }
+                            }
+                        }
                     }
                 }
                 .navigationSplitViewStyle(.balanced)
@@ -66,17 +119,6 @@ struct ContentView: View {
                     editorView
                 }
                 .navigationSplitViewStyle(.balanced)
-            }
-        }
-        .frame(minWidth: 900, minHeight: 600)
-        .alert(item: Binding(get: {
-            vm.errorMessage.map { ErrorWrapper(message: $0) }
-        }, set: { _ in vm.errorMessage = nil })) { wrapper in
-            Alert(title: Text("Error"), message: Text(wrapper.message))
-        }
-        .onChange(of: selectedFolder) { newValue in
-            if ["Dashboard", "Workstream", "Tasks", "Tickets"].contains(newValue) {
-                vm.selectedNote = nil
             }
         }
     }
@@ -224,12 +266,6 @@ struct ContentView: View {
     
     private var noteListView: some View {
         List(selection: $vm.selectedNote) {
-            Text(middleColumnTitle)
-                .font(.system(size: 28, weight: .bold))
-                .padding(.vertical, 10)
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
-            
             ForEach(displayedNotes) { note in
                 NavigationLink(value: note) {
                     NoteRow(note: note)
@@ -253,12 +289,28 @@ struct ContentView: View {
             .onDelete(perform: deleteNotes)
         }
         .id(selectedFolder) // Force re-render when folder/topic changes
+        .navigationTitle(middleColumnTitle)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button(action: vm.createNote) {
-                    Image(systemName: "square.and.pencil")
+                HStack {
+                    if selectedFolder != "Journal" {
+                        Button {
+                            vm.createNote(isJournal: true)
+                            // Auto-switch to Journal view so the user sees the right context
+                            selectedFolder = "Journal"
+                        } label: {
+                            Image(systemName: "book.closed")
+                        }
+                        .help("New Journal Entry")
+                    }
+                    
+                    Button {
+                        vm.createNote(isJournal: selectedFolder == "Journal")
+                    } label: {
+                        Image(systemName: "square.and.pencil")
+                    }
+                    .help(selectedFolder == "Journal" ? "New Journal Entry" : "New Note")
                 }
-                .help("New Note")
             }
         }
     }
@@ -716,6 +768,8 @@ struct ContentView: View {
                 VStack(spacing: 0) {
                     // Top bar: date stamp centered, actions on right
                     editorTopBar(note: note)
+                        .padding(.top, isZenMode ? 12 : 0)
+                        .padding(.horizontal, isZenMode ? 20 : 0)
                     
                     // Formatting Toolbar
                     EditorToolbar(text: $editorText)
@@ -741,18 +795,20 @@ struct ContentView: View {
                                 .scrollDisabled(true)
                                 .frame(minHeight: 500, maxHeight: .infinity)
                         }
+                        .frame(maxWidth: isZenMode ? 750 : .infinity)
                         .padding(.horizontal, 40)
-                        .padding(.top, 28)
+                        .padding(.top, isZenMode ? 50 : 28)
                         .padding(.bottom, 60)
+                        .frame(maxWidth: .infinity) // Center content
                     }
                 }
-                .onChange(of: editorText) { newValue in
+                .onChange(of: editorText) { _, newValue in
                     vm.updateSelectedNote(content: newValue)
                 }
-                .onChange(of: editorTitle) { newValue in
+                .onChange(of: editorTitle) { _, newValue in
                     vm.updateSelectedNoteTitle(newValue)
                 }
-                .onChange(of: vm.selectedNote?.id) { _ in
+                .onChange(of: vm.selectedNote?.id) { _, _ in
                     editorText = vm.selectedNote?.content ?? ""
                     editorTitle = vm.selectedNote?.title ?? ""
                 }
@@ -760,7 +816,7 @@ struct ContentView: View {
                     editorText = note.content
                     editorTitle = note.title
                 }
-                .onChange(of: vm.contentVersion) { _ in
+                .onChange(of: vm.contentVersion) { _, _ in
                     editorText = vm.selectedNote?.content ?? ""
                     editorTitle = vm.selectedNote?.title ?? ""
                 }
@@ -909,6 +965,24 @@ struct ContentView: View {
             
             // RIGHT: Save & Delete
             HStack(spacing: 12) {
+                // Zen Mode Toggle
+                Button {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                        isZenMode.toggle()
+                    }
+                } label: {
+                    Image(systemName: isZenMode ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 12))
+                        .foregroundStyle(isZenMode ? Color.blue : Color.secondary)
+                }
+                .buttonStyle(.plain)
+                .help(isZenMode ? "Exit Zen Mode" : "Enter Zen Mode")
+                .keyboardShortcut("f", modifiers: [.command, .shift])
+                
+                Rectangle()
+                    .fill(.separator.opacity(0.3))
+                    .frame(width: 1, height: 14)
+                
                 Button { Task { await vm.saveAndCommit() } } label: {
                     Image(systemName: "square.and.arrow.down")
                         .font(.system(size: 12))
