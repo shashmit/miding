@@ -38,23 +38,15 @@ struct TaskTimelineView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // Header bar
             headerBar
-            
-            Divider()
-            
+            Rectangle().fill(Theme.Palette.hairline).frame(height: 1)
+
             if vm.allTasks.isEmpty {
                 emptyState
             } else {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        // Timeline section
+                    VStack(alignment: .leading, spacing: 24) {
                         timelineSection
-                        
-                        Divider()
-                            .padding(.horizontal, 20)
-                        
-                        // All Tasks grid below the timeline
                         allTasksGrid
                     }
                     .padding(.bottom, 40)
@@ -62,11 +54,7 @@ struct TaskTimelineView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        #if os(macOS)
-        .background(Color(nsColor: .windowBackgroundColor))
-        #else
-        .background(Color(uiColor: .systemBackground))
-        #endif
+        .background(Theme.Palette.canvas)
     }
     
     // MARK: - Header
@@ -554,17 +542,16 @@ struct TaskTimelineView: View {
     }
     
     private func taskPriorityColor(_ priority: Priority?) -> Color {
-        switch priority {
-        case .low: return .green
-        case .medium: return .yellow
-        case .high: return .orange
-        case .critical: return .red
-        case nil: return .blue
-        }
+        priority?.accent.ink ?? Theme.Palette.sky.ink
     }
-    
+
+    private func taskPriorityTint(_ priority: Priority?) -> Color {
+        priority?.accent.tint ?? Theme.Palette.sky.tint
+    }
+
     private func contrastColor(for priority: Priority?) -> Color {
-        return priority == .medium ? .black.opacity(0.7) : .white
+        // All ink colors are dark; use white on ink fills.
+        return .white
     }
     
     private func priorityProgress(_ p: Priority) -> CGFloat {

@@ -37,9 +37,10 @@ struct CalendarView: View {
                 Spacer()
                 
                 Text(currentMonth, format: .dateTime.month(.wide).year())
-                    .font(.headline)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.ink)
                     .onTapGesture {
-                        currentMonth = Date() // Reset to today on tap
+                        currentMonth = Date()
                     }
                 
                 Spacer()
@@ -79,13 +80,13 @@ struct CalendarView: View {
                 }
             }
         }
-        .padding()
-        #if os(macOS)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
-        #else
-        .background(Color(uiColor: .secondarySystemBackground).opacity(0.5))
-        #endif
-        .cornerRadius(12)
+        .padding(16)
+        .background(Theme.Palette.surface)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+                .strokeBorder(Theme.Palette.hairline, lineWidth: 1)
+        )
     }
     
     private func isSelected(_ date: Date) -> Bool {
@@ -119,24 +120,21 @@ struct DayCell: View {
             VStack(spacing: 2) {
                 ZStack {
                     if isSelected {
-                        Circle()
-                            .fill(Color.accentColor)
-                            .frame(width: 28, height: 28)
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Theme.Palette.lilac.ink)
+                            .frame(width: 30, height: 30)
                     } else if isToday {
-                        Circle()
-                            .fill(Color.accentColor.opacity(0.2))
-                            .frame(width: 28, height: 28)
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(Theme.Palette.tasks.ink, lineWidth: 1.5)
+                            .frame(width: 30, height: 30)
                     }
-                    
+
                     Text(date, format: .dateTime.day())
-                        .font(.system(size: 14, weight: isSelected || isToday ? .semibold : .regular))
-                        .foregroundStyle(isSelected ? .white : (isToday ? Color.accentColor : .primary))
+                        .font(.system(size: 13, weight: isSelected || isToday ? .semibold : .regular))
+                        .foregroundStyle(isSelected ? .white : (isToday ? Theme.Palette.tasks.ink : Theme.Palette.ink))
                 }
-                
-                // Task Dot Indicator Removed
-                Circle()
-                    .fill(Color.clear)
-                    .frame(width: 4, height: 4)
+
+                Circle().fill(Color.clear).frame(width: 4, height: 4)
             }
             .frame(height: 40)
         }

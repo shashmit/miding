@@ -135,11 +135,6 @@ struct TicketDetailView: View {
     }
     
     private func priorityColor(_ p: Priority) -> Color {
-        switch p {
-        case .low: return .green
-        case .medium: return .yellow
-        case .high: return .orange
-        case .critical: return .red
-        }
+        p.accent.ink
     }
 }

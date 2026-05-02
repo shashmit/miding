@@ -9,6 +9,7 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject private var vm = NotesViewModel()
+    @AppStorage("sidebar_icon_styles_json") private var sidebarIconStylesJSON = ""
     @State private var columnVisibility = NavigationSplitViewVisibility.doubleColumn
     @State private var selectedFolder: String? = "Dashboard"
     @State private var ticketFilter = "all"  // all, open, in-progress, blocked, closed
@@ -20,21 +21,21 @@ struct ContentView: View {
     @State private var editorTitle = ""
     @State private var showNoteHistory = false
     @State private var isZenMode = false
+    @State private var sidebarIconStyles: [String: SidebarIconStyle] = [:]
+    @State private var editingTopicState: TopicEditState?
 
     var body: some View {
         ZStack {
+            Theme.Palette.canvas.ignoresSafeArea()
+
             if !isZenMode {
                 mainLayout
                     .transition(.opacity)
             }
-            
+
             if isZenMode {
                 editorView
-                    #if os(macOS)
-                    .background(Color(nsColor: .windowBackgroundColor))
-                    #else
-                    .background(Color(uiColor: .systemBackground))
-                    #endif
+                    .background(Theme.Palette.canvas.ignoresSafeArea())
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
                     .zIndex(100)
             }
@@ -46,15 +47,34 @@ struct ContentView: View {
             Alert(title: Text("Error"), message: Text(wrapper.message))
         }
         .onChange(of: selectedFolder) { _, newValue in
-            if ["Dashboard", "Workstream", "Tasks", "Tickets"].contains(newValue) {
+            if ["Dashboard", "Workstream", "Tasks", "Tickets"].contains(newValue ?? "") {
                 vm.selectedNote = nil
+            }
+        }
+        .onAppear {
+            loadSidebarIconStyles()
+        }
+        .onChange(of: sidebarIconStyles) { _, _ in
+            persistSidebarIconStyles()
+        }
+        .sheet(item: $editingTopicState) { state in
+            TopicEditorSheet(
+                initialTopic: state.topic,
+                initialStyle: sidebarStyle(for: topicIconKey(state.topic)),
+                defaultTopicStyle: sidebarStyle(for: "topic")
+            ) { result in
+                applyTopicEdit(from: state.topic, result: result)
             }
         }
     }
 
+    private var isOverviewSection: Bool {
+        ["Dashboard", "Workstream", "Tasks", "Tickets"].contains(selectedFolder ?? "")
+    }
+
     private var mainLayout: some View {
         Group {
-            if selectedFolder == "Dashboard" || selectedFolder == "Workstream" || selectedFolder == "Tasks" || selectedFolder == "Tickets" {
+            if isOverviewSection {
                 NavigationSplitView {
                     sidebar
                         .navigationSplitViewColumnWidth(min: 160, ideal: 180, max: 220)
@@ -64,25 +84,17 @@ struct ContentView: View {
                             vm.navigateToNote(id: noteID)
                             selectedFolder = "All Notes"
                         }
-                        #if os(macOS)
-                        .toolbar(.hidden, for: .windowToolbar)
-                        #endif
+                        .hideWindowToolbar()
                         .navigationTitle("Workstream")
                     } else if selectedFolder == "Tasks" {
                         tasksListView
-                        #if os(macOS)
-                        .toolbar(.hidden, for: .windowToolbar)
-                        #endif
+                            .hideWindowToolbar()
                     } else if selectedFolder == "Tickets" {
                         ticketsListView
-                        #if os(macOS)
-                        .toolbar(.hidden, for: .windowToolbar)
-                        #endif
+                            .hideWindowToolbar()
                     } else {
                         dashboardView
-                        #if os(macOS)
-                        .toolbar(.hidden, for: .windowToolbar)
-                        #endif
+                        .hideWindowToolbar()
                         .navigationTitle("Dashboard")
                         .toolbar {
                             ToolbarItem(placement: .primaryAction) {
@@ -133,48 +145,53 @@ struct ContentView: View {
                 itemsSection
             }
             .listStyle(.sidebar)
-            
-            Divider()
-            
+            .scrollContentBackground(.hidden)
+            .background(Theme.Palette.surfaceMuted)
+
+            Rectangle().fill(Theme.Palette.hairline).frame(height: 1)
+
             // History pinned at the bottom
             Button {
                 selectedFolder = "History"
             } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "clock.arrow.circlepath")
-                        .font(.system(size: 12))
-                        .foregroundStyle(selectedFolder == "History" ? .blue : .secondary)
+                HStack(spacing: 10) {
+                    IconBadge(symbol: sidebarStyle(for: "history").symbol,
+                              accent: sidebarStyle(for: "history").color.pastel,
+                              size: 22, symbolSize: 11)
                     Text("All History")
-                        .font(.system(size: 12, weight: selectedFolder == "History" ? .semibold : .regular))
-                        .foregroundStyle(selectedFolder == "History" ? .primary : .secondary)
+                        .font(.system(size: 13, weight: selectedFolder == "History" ? .semibold : .medium))
+                        .foregroundStyle(selectedFolder == "History" ? Theme.Palette.ink : Theme.Palette.inkSoft)
                     Spacer()
                 }
-                .padding(.horizontal, 14)
+                .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(selectedFolder == "History" ? Color.blue.opacity(0.1) : Color.clear)
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(selectedFolder == "History" ? Theme.Palette.surface : Color.clear)
+                        .shadow(color: selectedFolder == "History" ? .black.opacity(0.04) : .clear, radius: 4, x: 0, y: 1)
                         .padding(.horizontal, 6)
                 )
             }
             .buttonStyle(.plain)
+            .padding(.vertical, 6)
         }
+        .background(Theme.Palette.surfaceMuted)
         .navigationTitle("miding")
     }
 
     private var librarySection: some View {
         Section("Library") {
             NavigationLink(value: "Dashboard") {
-                Label("Dashboard", systemImage: "square.grid.2x2")
+                sidebarLabel("Dashboard", iconKey: "dashboard")
             }
             NavigationLink(value: "Workstream") {
-                Label("Workstream", systemImage: "chart.bar.xaxis")
+                sidebarLabel("Workstream", iconKey: "workstream")
             }
             NavigationLink(value: "All Notes") {
-                Label("All Notes", systemImage: "note.text")
+                sidebarLabel("All Notes", iconKey: "allNotes")
             }
             NavigationLink(value: "Journal") {
-                Label("Journal", systemImage: "book.closed")
+                sidebarLabel("Journal", iconKey: "journal")
             }
         }
     }
@@ -183,29 +200,21 @@ struct ContentView: View {
         Section("Items") {
             NavigationLink(value: "Tasks") {
                 HStack {
-                    Label("Tasks", systemImage: "checklist")
+                    sidebarLabel("Tasks", iconKey: "tasks")
                     Spacer()
                     if vm.pendingTaskCount > 0 {
-                        Text("\(vm.pendingTaskCount)")
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(Capsule().fill(.orange))
+                        Pill(text: "\(vm.pendingTaskCount)",
+                             accent: Theme.Palette.tasks, style: .tinted, size: 10)
                     }
                 }
             }
             NavigationLink(value: "Tickets") {
                 HStack {
-                    Label("Tickets", systemImage: "ticket")
+                    sidebarLabel("Tickets", iconKey: "tickets")
                     Spacer()
                     if vm.totalTicketCount > 0 {
-                        Text("\(vm.totalTicketCount)")
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(Capsule().fill(.tertiary.opacity(0.3)))
+                        Pill(text: "\(vm.totalTicketCount)",
+                             accent: Theme.Palette.tickets, style: .tinted, size: 10)
                     }
                 }
             }
@@ -215,7 +224,7 @@ struct ContentView: View {
     private var versionControlSection: some View {
         Section("History") {
             NavigationLink(value: "History") {
-                Label("All History", systemImage: "clock.arrow.circlepath")
+                sidebarLabel("All History", iconKey: "history")
             }
         }
     }
@@ -223,19 +232,12 @@ struct ContentView: View {
     private var topicsSection: some View {
         Section(isExpanded: $topicsExpanded) {
             ForEach(allTopics, id: \.self) { topic in
-                HStack {
-                    Label(topic, systemImage: "number")
-                    Spacer()
-                    let count = vm.notes.filter { $0.tags.contains(topic) && $0.journalDate == nil }.count
-                    if count > 0 {
-                        Text("\(count)")
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(Capsule().fill(.tertiary.opacity(0.3)))
-                    }
-                }
+                TopicRow(
+                    topic: topic,
+                    style: sidebarStyle(for: topicIconKey(topic)),
+                    count: vm.topicNoteCount(topic),
+                    onEdit: { editingTopicState = TopicEditState(topic: topic) }
+                )
                 .tag("topic:\(topic)")
             }
         } header: {
@@ -647,16 +649,79 @@ struct ContentView: View {
     }
     
     // MARK: - Helpers
-    
-    private func priorityColor(_ p: Priority) -> Color {
-        switch p {
-        case .low: return .green
-        case .medium: return .yellow
-        case .high: return .orange
-        case .critical: return .red
+
+    private func sidebarStyle(for key: String) -> SidebarIconStyle {
+        if let style = sidebarIconStyles[key] {
+            return style
         }
+        if let style = SidebarIconStyle.defaults[key] {
+            return style
+        }
+        if key.hasPrefix("topic:"),
+           let topicFallback = sidebarIconStyles["topic"] ?? SidebarIconStyle.defaults["topic"] {
+            return topicFallback
+        }
+        return SidebarIconStyle(symbol: "circle", color: .blue)
     }
     
+    private func sidebarLabel(_ title: String, iconKey: String) -> some View {
+        HStack(spacing: 10) {
+            sidebarIcon(iconKey)
+            Text(title)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Theme.Palette.ink)
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func sidebarIcon(_ key: String, size: CGFloat = 22) -> some View {
+        let style = sidebarStyle(for: key)
+        return IconBadge(symbol: style.symbol, accent: style.color.pastel, size: size, symbolSize: size * 0.5)
+    }
+    
+    private func loadSidebarIconStyles() {
+        if let data = sidebarIconStylesJSON.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode([String: SidebarIconStyle].self, from: data),
+           !decoded.isEmpty {
+            sidebarIconStyles = decoded
+            return
+        }
+        sidebarIconStyles = SidebarIconStyle.defaults
+    }
+    
+    private func persistSidebarIconStyles() {
+        guard let data = try? JSONEncoder().encode(sidebarIconStyles),
+              let json = String(data: data, encoding: .utf8) else { return }
+        sidebarIconStylesJSON = json
+    }
+    
+    private func topicIconKey(_ topic: String) -> String {
+        "topic:\(topic)"
+    }
+    
+    private func applyTopicEdit(from oldTopic: String, result: TopicEditResult) {
+        let newTopic = result.topic.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !newTopic.isEmpty else { return }
+        
+        if newTopic != oldTopic {
+            vm.renameTagAcrossNotes(from: oldTopic, to: newTopic)
+            if selectedFolder == "topic:\(oldTopic)" {
+                selectedFolder = "topic:\(newTopic)"
+            }
+        }
+        
+        let oldKey = topicIconKey(oldTopic)
+        let newKey = topicIconKey(newTopic)
+        if oldKey != newKey {
+            sidebarIconStyles.removeValue(forKey: oldKey)
+        }
+        sidebarIconStyles[newKey] = SidebarIconStyle(symbol: result.symbol, color: result.color)
+    }
+    
+    private func priorityColor(_ p: Priority) -> Color {
+        p.accent.ink
+    }
+
     private func priorityIcon(_ p: Priority) -> String {
         switch p {
         case .low: return "arrow.down"
@@ -665,16 +730,11 @@ struct ContentView: View {
         case .critical: return "exclamationmark.2"
         }
     }
-    
+
     private func ticketStatusColor(_ s: TicketStatus) -> Color {
-        switch s {
-        case .open: return .blue
-        case .inProgress: return .orange
-        case .blocked: return .red
-        case .closed: return .green
-        }
+        s.accent.ink
     }
-    
+
     private func ticketStatusLabel(_ s: TicketStatus) -> String {
         switch s {
         case .open: return "OPEN"
@@ -779,28 +839,37 @@ struct ContentView: View {
                         VStack(alignment: .leading, spacing: 0) {
                             // Title
                             TextField("Title", text: $editorTitle)
-                                .font(.system(size: 26, weight: .bold))
+                                .font(Theme.Typo.title)
+                                .tracking(-0.4)
+                                .foregroundStyle(Theme.Palette.ink)
                                 .textFieldStyle(.plain)
-                                .padding(.bottom, 6)
-                            
+                                .padding(.bottom, 8)
+
                             // Metadata bar: date + tags
                             noteMetadataBar(note: note)
-                                .padding(.bottom, 14)
-                            
+                                .padding(.bottom, 18)
+
+                            Rectangle()
+                                .fill(Theme.Palette.hairline)
+                                .frame(height: 1)
+                                .padding(.bottom, 16)
+
                             // Content
                             TextEditor(text: $editorText)
                                 .font(.system(size: 15))
-                                .lineSpacing(5)
+                                .foregroundStyle(Theme.Palette.ink)
+                                .lineSpacing(6)
                                 .scrollContentBackground(.hidden)
                                 .scrollDisabled(true)
                                 .frame(minHeight: 500, maxHeight: .infinity)
                         }
-                        .frame(maxWidth: isZenMode ? 750 : .infinity)
+                        .frame(maxWidth: 760)
                         .padding(.horizontal, 40)
-                        .padding(.top, isZenMode ? 50 : 28)
+                        .padding(.top, isZenMode ? 50 : 32)
                         .padding(.bottom, 60)
                         .frame(maxWidth: .infinity) // Center content
                     }
+                    .background(Theme.Palette.canvas)
                 }
                 .onChange(of: editorText) { _, newValue in
                     vm.updateSelectedNote(content: newValue)
@@ -836,35 +905,35 @@ struct ContentView: View {
     }
 
     private func noteMetadataBar(note: Note) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let isJournal = note.journalDate != nil
+        let dateAccent: AccentPair = isJournal ? Theme.Palette.journal : Theme.Palette.sky
+
+        return VStack(alignment: .leading, spacing: 10) {
             // Date row
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 Image(systemName: "calendar")
                     .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(Theme.Palette.inkMuted)
                 Text(note.createdAt, format: .dateTime.month(.wide).day().year())
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                
-                if note.journalDate != nil {
-                    Text("· Journal")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.blue.opacity(0.7))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Theme.Palette.inkSoft)
+
+                if isJournal {
+                    Pill(text: "Journal", accent: dateAccent, style: .tinted, size: 10)
                 }
             }
-            
+
             // Tags row
             HStack(spacing: 6) {
                 Image(systemName: "tag")
                     .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
-                
-                // Existing tags
+                    .foregroundStyle(Theme.Palette.inkMuted)
+
                 ForEach(note.tags, id: \.self) { tag in
-                    HStack(spacing: 3) {
+                    HStack(spacing: 4) {
                         Text("#\(tag)")
-                            .font(.system(size: 11, weight: .medium))
-                        
+                            .font(.system(size: 11, weight: .semibold))
+
                         Button {
                             vm.removeTag(tag)
                         } label: {
@@ -873,15 +942,12 @@ struct ContentView: View {
                         }
                         .buttonStyle(.plain)
                     }
-                    .foregroundStyle(.blue)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .background(
-                        Capsule().fill(.blue.opacity(0.1))
-                    )
+                    .foregroundStyle(Theme.Palette.lilac.ink)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(Theme.Palette.lilac.tint))
                 }
-                
-                // Add new tag field
+
                 TextField("Add tag…", text: $newTagText)
                     .font(.system(size: 11))
                     .textFieldStyle(.plain)
@@ -898,24 +964,21 @@ struct ContentView: View {
     
     private func editorTopBar(note: Note) -> some View {
         HStack {
-            // LEFT: History branch button
+            // LEFT: History branch button + Snapshot
             HStack(spacing: 8) {
                 Button { showNoteHistory.toggle() } label: {
-                    HStack(spacing: 4) {
-                        // Git branch icon
+                    HStack(spacing: 5) {
                         Image(systemName: "point.3.filled.connected.trianglepath.dotted")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.blue.opacity(0.7))
-                        
+                            .font(.system(size: 11, weight: .semibold))
                         Text("\(note.history.count)")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(.secondary)
+                            .font(.system(size: 10, weight: .bold))
                     }
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
+                    .foregroundStyle(Theme.Palette.lilac.ink)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
                     .background(
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(.blue.opacity(showNoteHistory ? 0.12 : 0.05))
+                        Capsule().fill(showNoteHistory ? Theme.Palette.lilac.tint : Theme.Palette.surface)
+                            .overlay(Capsule().strokeBorder(Theme.Palette.hairline, lineWidth: 1))
                     )
                 }
                 .buttonStyle(.plain)
@@ -923,33 +986,29 @@ struct ContentView: View {
                 .popover(isPresented: $showNoteHistory, arrowEdge: .bottom) {
                     noteHistoryPopover(note: note)
                 }
-                
-                // Save snapshot button
+
                 Button {
                     vm.saveSnapshot(summary: "Manual save")
-                    // Refresh editorText since history was added
                     editorText = vm.selectedNote?.content ?? editorText
                 } label: {
-                    HStack(spacing: 3) {
-                        Image(systemName: "camera.fill")
-                            .font(.system(size: 10))
-                        Text("Snapshot")
-                            .font(.system(size: 10, weight: .medium))
+                    HStack(spacing: 4) {
+                        Image(systemName: "camera.fill").font(.system(size: 10))
+                        Text("Snapshot").font(.system(size: 11, weight: .medium))
                     }
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
+                    .foregroundStyle(Theme.Palette.inkSoft)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
                     .background(
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(.secondary.opacity(0.08))
+                        Capsule().fill(Theme.Palette.surface)
+                            .overlay(Capsule().strokeBorder(Theme.Palette.hairline, lineWidth: 1))
                     )
                 }
                 .buttonStyle(.plain)
                 .help("Save a snapshot of the current content")
             }
-            
+
             Spacer()
-            
+
             // CENTER: Date
             Group {
                 if let journalDate = note.journalDate {
@@ -959,54 +1018,41 @@ struct ContentView: View {
                 }
             }
             .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(.tertiary)
-            
+            .foregroundStyle(Theme.Palette.inkMuted)
+
             Spacer()
-            
-            // RIGHT: Save & Delete
-            HStack(spacing: 12) {
-                // Zen Mode Toggle
+
+            // RIGHT: Zen + Save + Delete
+            HStack(spacing: 8) {
                 Button {
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                        isZenMode.toggle()
-                    }
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) { isZenMode.toggle() }
                 } label: {
-                    Image(systemName: isZenMode ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
-                        .font(.system(size: 12))
-                        .foregroundStyle(isZenMode ? Color.blue : Color.secondary)
+                    IconBadge(symbol: isZenMode ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
+                              accent: isZenMode ? Theme.Palette.lilac : Theme.Palette.neutral,
+                              size: 26, symbolSize: 11)
                 }
                 .buttonStyle(.plain)
                 .help(isZenMode ? "Exit Zen Mode" : "Enter Zen Mode")
                 .keyboardShortcut("f", modifiers: [.command, .shift])
-                
-                Rectangle()
-                    .fill(.separator.opacity(0.3))
-                    .frame(width: 1, height: 14)
-                
+
                 Button { Task { await vm.saveAndCommit() } } label: {
-                    Image(systemName: "square.and.arrow.down")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.tertiary)
+                    IconBadge(symbol: "square.and.arrow.down",
+                              accent: Theme.Palette.mint, size: 26, symbolSize: 11)
                 }
                 .buttonStyle(.plain)
                 .help("Save")
                 .keyboardShortcut("s", modifiers: .command)
-                
-                Rectangle()
-                    .fill(.separator.opacity(0.3))
-                    .frame(width: 1, height: 14)
-                
+
                 Button { showDeleteConfirm = true } label: {
-                    Image(systemName: "trash")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.tertiary)
+                    IconBadge(symbol: "trash", accent: Theme.Palette.blush, size: 26, symbolSize: 11)
                 }
                 .buttonStyle(.plain)
                 .help("Delete Note")
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 10)
+        .background(Theme.Palette.canvas)
         .alert("Delete Note", isPresented: $showDeleteConfirm) {
             Button("Cancel", role: .cancel) { }
             Button("Delete", role: .destructive) {
@@ -1099,10 +1145,46 @@ struct ContentView: View {
     }
 }
 
-// MARK: - Subviews
-
 
 private struct ErrorWrapper: Identifiable { let id = UUID(); let message: String }
+
+private struct TopicRow: View {
+    let topic: String
+    let style: SidebarIconStyle
+    let count: Int
+    let onEdit: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            IconBadge(symbol: style.symbol, accent: style.color.pastel, size: 22, symbolSize: 11)
+            Text(topic)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Theme.Palette.ink)
+            Spacer()
+            if count > 0, !isHovered {
+                Pill(text: "\(count)", accent: style.color.pastel, style: .tinted, size: 10)
+            }
+            if isHovered {
+                Button(action: onEdit) {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.Palette.inkSoft)
+                }
+                .buttonStyle(.plain)
+                .help("Edit topic")
+                .transition(.opacity)
+            }
+        }
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.12)) {
+                isHovered = hovering
+            }
+        }
+    }
+}
 
 #Preview {
     ContentView()

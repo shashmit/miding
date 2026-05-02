@@ -87,6 +87,36 @@ struct NoteHistoryEntry: Identifiable, Codable, Hashable {
     var title: String
     var contentSnapshot: String
     var summary: String // e.g. "Edited", "Created", "Saved & Committed"
+    var branch: String = "main"
+    var parentIds: [UUID] = [] // 0 = root, 1 = normal, 2 = merge
+
+    var isMerge: Bool { parentIds.count > 1 }
+
+    enum CodingKeys: String, CodingKey {
+        case id, timestamp, title, contentSnapshot, summary, branch, parentIds
+    }
+
+    init(id: UUID = UUID(), timestamp: Date, title: String, contentSnapshot: String,
+         summary: String, branch: String = "main", parentIds: [UUID] = []) {
+        self.id = id
+        self.timestamp = timestamp
+        self.title = title
+        self.contentSnapshot = contentSnapshot
+        self.summary = summary
+        self.branch = branch
+        self.parentIds = parentIds
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        timestamp = try c.decode(Date.self, forKey: .timestamp)
+        title = try c.decode(String.self, forKey: .title)
+        contentSnapshot = try c.decode(String.self, forKey: .contentSnapshot)
+        summary = try c.decode(String.self, forKey: .summary)
+        branch = try c.decodeIfPresent(String.self, forKey: .branch) ?? "main"
+        parentIds = try c.decodeIfPresent([UUID].self, forKey: .parentIds) ?? []
+    }
 }
 
 struct Note: Identifiable, Codable, Hashable {
@@ -98,6 +128,52 @@ struct Note: Identifiable, Codable, Hashable {
     var journalDate: Date? // Optional: if associated with a specific date (Journal entry)
     var tags: [String] = []
     var history: [NoteHistoryEntry] = []
-    
-    // Legacy support logic can map old JournalEntry to Note
+    var currentBranch: String = "main"
+    var branchHeads: [String: UUID] = [:] // branch name → HEAD entry id
+
+    var allBranches: [String] {
+        var seen = Set<String>()
+        var ordered: [String] = []
+        for name in branchHeads.keys.sorted() where seen.insert(name).inserted {
+            ordered.append(name)
+        }
+        for entry in history where seen.insert(entry.branch).inserted {
+            ordered.append(entry.branch)
+        }
+        if ordered.isEmpty { ordered = ["main"] }
+        return ordered
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, content, createdAt, modifiedAt, journalDate, tags, history, currentBranch, branchHeads
+    }
+
+    init(id: UUID = UUID(), title: String, content: String, createdAt: Date, modifiedAt: Date,
+         journalDate: Date? = nil, tags: [String] = [], history: [NoteHistoryEntry] = [],
+         currentBranch: String = "main", branchHeads: [String: UUID] = [:]) {
+        self.id = id
+        self.title = title
+        self.content = content
+        self.createdAt = createdAt
+        self.modifiedAt = modifiedAt
+        self.journalDate = journalDate
+        self.tags = tags
+        self.history = history
+        self.currentBranch = currentBranch
+        self.branchHeads = branchHeads
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        title = try c.decode(String.self, forKey: .title)
+        content = try c.decode(String.self, forKey: .content)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        modifiedAt = try c.decode(Date.self, forKey: .modifiedAt)
+        journalDate = try c.decodeIfPresent(Date.self, forKey: .journalDate)
+        tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
+        history = try c.decodeIfPresent([NoteHistoryEntry].self, forKey: .history) ?? []
+        currentBranch = try c.decodeIfPresent(String.self, forKey: .currentBranch) ?? "main"
+        branchHeads = try c.decodeIfPresent([String: UUID].self, forKey: .branchHeads) ?? [:]
+    }
 }

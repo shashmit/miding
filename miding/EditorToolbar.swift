@@ -3,11 +3,10 @@ import SwiftUI
 
 struct EditorToolbar: View {
     @Binding var text: String
-    
+
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 0) {
-                // Text Style
                 ToolbarGroup {
                     ToolbarButton(icon: "bold", tooltip: "Bold") {
                         wrapSelection(prefix: "**", suffix: "**", placeholder: "bold")
@@ -19,66 +18,43 @@ struct EditorToolbar: View {
                         wrapSelection(prefix: "~~", suffix: "~~", placeholder: "strikethrough")
                     }
                 }
-                
+
                 ToolbarSep()
-                
-                // Headings
+
                 ToolbarGroup {
-                    ToolbarTextButton(label: "H₁", tooltip: "Heading 1") {
-                        insertLinePrefix("# ")
-                    }
-                    ToolbarTextButton(label: "H₂", tooltip: "Heading 2") {
-                        insertLinePrefix("## ")
-                    }
-                    ToolbarTextButton(label: "H₃", tooltip: "Heading 3") {
-                        insertLinePrefix("### ")
-                    }
+                    ToolbarTextButton(label: "H₁", tooltip: "Heading 1") { insertLinePrefix("# ") }
+                    ToolbarTextButton(label: "H₂", tooltip: "Heading 2") { insertLinePrefix("## ") }
+                    ToolbarTextButton(label: "H₃", tooltip: "Heading 3") { insertLinePrefix("### ") }
                 }
-                
+
                 ToolbarSep()
-                
-                // Lists
+
                 ToolbarGroup {
-                    ToolbarButton(icon: "list.bullet", tooltip: "Bulleted List") {
-                        insertLinePrefix("- ")
-                    }
-                    ToolbarButton(icon: "list.number", tooltip: "Numbered List") {
-                        insertLinePrefix("1. ")
-                    }
+                    ToolbarButton(icon: "list.bullet", tooltip: "Bulleted List") { insertLinePrefix("- ") }
+                    ToolbarButton(icon: "list.number", tooltip: "Numbered List") { insertLinePrefix("1. ") }
                 }
-                
+
                 ToolbarSep()
-                
-                // Code & Rule
+
                 ToolbarGroup {
                     ToolbarButton(icon: "chevron.left.forwardslash.chevron.right", tooltip: "Code Block") {
                         append("\n```\n\n```\n")
                     }
-                    ToolbarButton(icon: "text.quote", tooltip: "Block Quote") {
-                        insertLinePrefix("> ")
-                    }
-                    ToolbarButton(icon: "minus", tooltip: "Divider") {
-                        append("\n---\n")
-                    }
+                    ToolbarButton(icon: "text.quote", tooltip: "Block Quote") { insertLinePrefix("> ") }
+                    ToolbarButton(icon: "minus", tooltip: "Divider") { append("\n---\n") }
                 }
-                
+
                 ToolbarSep()
-                
-                // Links & Media
+
                 ToolbarGroup {
-                    ToolbarButton(icon: "link", tooltip: "Link") {
-                        append("[text](url)")
-                    }
-                    ToolbarButton(icon: "photo", tooltip: "Image") {
-                        append("![alt](url)")
-                    }
+                    ToolbarButton(icon: "link", tooltip: "Link") { append("[text](url)") }
+                    ToolbarButton(icon: "photo", tooltip: "Image") { append("![alt](url)") }
                 }
-                
+
                 ToolbarSep()
-                
-                // Miding-specific
+
                 ToolbarGroup {
-                    ToolbarButton(icon: "checkmark.square", tooltip: "Task") {
+                    ToolbarButton(icon: "checkmark.square", tooltip: "Task", accent: Theme.Palette.mint) {
                         let today = {
                             let f = DateFormatter()
                             f.dateFormat = "yyyy-MM-dd"
@@ -86,59 +62,46 @@ struct EditorToolbar: View {
                         }()
                         append("\n- [ ] Task description @due(\(today)) @priority(medium)")
                     }
-                    ToolbarButton(icon: "ticket", tooltip: "Ticket") {
+                    ToolbarButton(icon: "ticket", tooltip: "Ticket", accent: Theme.Palette.blush) {
                         append("\n:::ticket\nID: \nTitle: \nStatus: \n:::\n")
                     }
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 5)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 6)
         }
-        .frame(height: 36)
-        #if os(macOS)
-        .background(Color(nsColor: .windowBackgroundColor).opacity(0.5))
-        #else
-        .background(Color(uiColor: .systemBackground).opacity(0.5))
-        #endif
+        .frame(height: 40)
+        .background(Theme.Palette.surfaceMuted)
         .overlay(alignment: .bottom) {
-            Rectangle().fill(.separator.opacity(0.3)).frame(height: 0.5)
+            Rectangle().fill(Theme.Palette.hairline).frame(height: 1)
         }
     }
-    
-    // MARK: - Helpers
-    
-    private func append(_ string: String) {
-        text.append(string)
-    }
-    
+
+    private func append(_ string: String) { text.append(string) }
     private func wrapSelection(prefix: String, suffix: String, placeholder: String) {
         text.append("\(prefix)\(placeholder)\(suffix)")
     }
-    
-    private func insertLinePrefix(_ prefix: String) {
-        text.append("\n\(prefix)")
-    }
+    private func insertLinePrefix(_ prefix: String) { text.append("\n\(prefix)") }
 }
-
-// MARK: - Components
 
 private struct ToolbarButton: View {
     let icon: String
     let tooltip: String
+    var accent: AccentPair = Theme.Palette.lilac
     let action: () -> Void
-    
+
     @State private var isHovered = false
-    
+
     var body: some View {
         Button(action: action) {
             Image(systemName: icon)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(isHovered ? .primary : .secondary)
-                .frame(width: 26, height: 26)
+                .foregroundStyle(isHovered ? accent.ink : Theme.Palette.inkSoft)
+                .frame(width: 28, height: 28)
                 .contentShape(Rectangle())
                 .background(
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(isHovered ? Color.primary.opacity(0.06) : Color.clear)
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(isHovered ? accent.tint : Color.clear)
                 )
         }
         .buttonStyle(.plain)
@@ -153,19 +116,19 @@ private struct ToolbarTextButton: View {
     let label: String
     let tooltip: String
     let action: () -> Void
-    
+
     @State private var isHovered = false
-    
+
     var body: some View {
         Button(action: action) {
             Text(label)
                 .font(.system(size: 12, weight: .semibold, design: .rounded))
-                .foregroundStyle(isHovered ? .primary : .secondary)
-                .frame(width: 26, height: 26)
+                .foregroundStyle(isHovered ? Theme.Palette.lilac.ink : Theme.Palette.inkSoft)
+                .frame(width: 28, height: 28)
                 .contentShape(Rectangle())
                 .background(
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(isHovered ? Color.primary.opacity(0.06) : Color.clear)
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(isHovered ? Theme.Palette.lilac.tint : Color.clear)
                 )
         }
         .buttonStyle(.plain)
@@ -178,19 +141,16 @@ private struct ToolbarTextButton: View {
 
 private struct ToolbarGroup<Content: View>: View {
     @ViewBuilder let content: Content
-    
     var body: some View {
-        HStack(spacing: 1) {
-            content
-        }
+        HStack(spacing: 2) { content }
     }
 }
 
 private struct ToolbarSep: View {
     var body: some View {
         Rectangle()
-            .fill(.separator.opacity(0.5))
-            .frame(width: 1, height: 16)
-            .padding(.horizontal, 6)
+            .fill(Theme.Palette.hairline)
+            .frame(width: 1, height: 18)
+            .padding(.horizontal, 8)
     }
 }

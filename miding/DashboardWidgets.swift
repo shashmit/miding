@@ -4,95 +4,90 @@ import SwiftUI
 struct TaskThreeDayView: View {
     let tasks: [(task: TaskItem, sourceNoteID: UUID)]
     var onNavigateToNote: (UUID) -> Void
-    
+
     private var yesterdayTasks: [TaskItem] {
         filterTasks(for: Calendar.current.date(byAdding: .day, value: -1, to: Date())!)
     }
-    
+
     private var todayTasks: [TaskItem] {
         filterTasks(for: Date())
     }
-    
+
     private var tomorrowTasks: [TaskItem] {
         filterTasks(for: Calendar.current.date(byAdding: .day, value: 1, to: Date())!)
     }
-    
+
     private func filterTasks(for date: Date) -> [TaskItem] {
         tasks.map { $0.task }.filter { task in
             guard let dueDate = task.dueDate else { return false }
             return Calendar.current.isDate(dueDate, inSameDayAs: date)
         }
     }
-    
+
     private func getSourceNoteID(for task: TaskItem) -> UUID? {
         tasks.first(where: { $0.task.id == task.id })?.sourceNoteID
     }
-    
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Proximity Task")
-                .font(.headline)
-            
-            VStack(spacing: 12) {
-                // Yesterday
-                DayRow(title: "Yesterday", date: Calendar.current.date(byAdding: .day, value: -1, to: Date())!, tasks: yesterdayTasks, color: .secondary)
-                
-                Divider()
-                
-                // Today
-                DayRow(title: "Today", date: Date(), tasks: todayTasks, color: .blue)
-                
-                Divider()
-                
-                // Tomorrow
-                DayRow(title: "Tomorrow", date: Calendar.current.date(byAdding: .day, value: 1, to: Date())!, tasks: tomorrowTasks, color: .orange)
+        VStack(alignment: .leading, spacing: 18) {
+            SectionHeader("Proximity Tasks", accent: Theme.Palette.tasks)
+
+            VStack(alignment: .leading, spacing: 14) {
+                DayRow(
+                    title: "Yesterday",
+                    date: Calendar.current.date(byAdding: .day, value: -1, to: Date())!,
+                    tasks: yesterdayTasks,
+                    accent: Theme.Palette.neutral
+                )
+                Divider().background(Theme.Palette.hairline)
+                DayRow(
+                    title: "Today",
+                    date: Date(),
+                    tasks: todayTasks,
+                    accent: Theme.Palette.tasks
+                )
+                Divider().background(Theme.Palette.hairline)
+                DayRow(
+                    title: "Tomorrow",
+                    date: Calendar.current.date(byAdding: .day, value: 1, to: Date())!,
+                    tasks: tomorrowTasks,
+                    accent: Theme.Palette.peach
+                )
             }
-            Spacer()
+            Spacer(minLength: 0)
         }
         .frame(height: 340)
-        .padding(20)
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 24))
-        .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: 5)
-        .overlay(
-            RoundedRectangle(cornerRadius: 24)
-                .stroke(Color.primary.opacity(0.1), lineWidth: 1)
-        )
+        .pastelCard(.elevated, padding: 22)
     }
-    
+
     @ViewBuilder
-    private func DayRow(title: String, date: Date, tasks: [TaskItem], color: Color) -> some View {
+    private func DayRow(title: String, date: Date, tasks: [TaskItem], accent: AccentPair) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(title)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .foregroundStyle(color)
-                
+                Pill(text: title, accent: accent, style: .tinted, size: 11)
                 Spacer()
-                
                 Text(date, format: .dateTime.day().month())
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.Palette.inkMuted)
             }
-            
+
             if tasks.isEmpty {
                 Text("No tasks")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .padding(.vertical, 4)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.Palette.inkMuted)
+                    .padding(.vertical, 2)
             } else {
                 ForEach(tasks.prefix(5), id: \.id) { task in
-                    HStack(alignment: .top, spacing: 6) {
+                    HStack(alignment: .top, spacing: 8) {
                         Image(systemName: task.isCompleted ? "checkmark.circle.fill" : "circle")
                             .font(.system(size: 12))
-                            .foregroundStyle(task.isCompleted ? .green : .secondary)
-                        
+                            .foregroundStyle(task.isCompleted ? Theme.Palette.mint.ink : Theme.Palette.inkFaint)
+
                         Text(task.text)
-                            .font(.caption)
+                            .font(.system(size: 12))
                             .lineLimit(1)
                             .strikethrough(task.isCompleted)
-                            .foregroundStyle(task.isCompleted ? .secondary : .primary)
+                            .foregroundStyle(task.isCompleted ? Theme.Palette.inkMuted : Theme.Palette.ink)
                     }
                     .padding(.vertical, 1)
                     .onTapGesture {
@@ -101,11 +96,11 @@ struct TaskThreeDayView: View {
                         }
                     }
                 }
-                
+
                 if tasks.count > 5 {
                     Text("+ \(tasks.count - 5) more")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(accent.ink)
                 }
             }
         }
@@ -115,118 +110,73 @@ struct TaskThreeDayView: View {
 struct TicketListView: View {
     let tickets: [(ticket: Ticket, sourceNoteID: UUID)]
     var onNavigateToNote: (UUID) -> Void
-    
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Recent Tickets")
-                    .font(.headline)
-                
-                Spacer()
-                
-                Text("\(tickets.count) Total")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 14) {
+            SectionHeader("Recent Tickets", accent: Theme.Palette.tickets) {
+                Text("\(tickets.count) total")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Theme.Palette.inkMuted)
             }
-            
+
             if tickets.isEmpty {
-                Spacer()
-                ContentUnavailableView("No tickets found", systemImage: "ticket")
-                Spacer()
+                Spacer(minLength: 0)
+                EmptyStateView(symbol: "ticket", title: "No tickets yet", accent: Theme.Palette.tickets)
+                Spacer(minLength: 0)
             } else {
-                ForEach(tickets.prefix(5), id: \.ticket.id) { item in
-                    TicketRow(ticket: item.ticket)
-                        .onTapGesture {
-                            onNavigateToNote(item.sourceNoteID)
-                        }
-                    
-                    if item.ticket.id != tickets.prefix(5).last?.ticket.id {
-                        Divider()
+                VStack(spacing: 10) {
+                    ForEach(tickets.prefix(5), id: \.ticket.id) { item in
+                        TicketRow(ticket: item.ticket)
+                            .contentShape(Rectangle())
+                            .onTapGesture { onNavigateToNote(item.sourceNoteID) }
                     }
                 }
-                
+
                 if tickets.count > 5 {
-                    Text("See all tickets in Tickets tab")
-                        .font(.caption)
-                        .foregroundStyle(.blue)
+                    Text("See all in the Tickets tab")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Theme.Palette.tickets.ink)
                         .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.top, 4)
+                        .padding(.top, 2)
                 }
-                Spacer()
+                Spacer(minLength: 0)
             }
         }
         .frame(height: 340)
-        .padding(20)
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 24))
-        .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: 5)
-        .overlay(
-            RoundedRectangle(cornerRadius: 24)
-                .stroke(Color.primary.opacity(0.1), lineWidth: 1)
-        )
+        .pastelCard(.elevated, padding: 22)
     }
 }
 
 struct TicketRow: View {
     let ticket: Ticket
-    
-    var statusColor: Color {
-        switch ticket.status {
-        case .open: return .blue
-        case .inProgress: return .orange
-        case .blocked: return .red
-        case .closed: return .green
-        }
-    }
-    
+
     var body: some View {
-        HStack(alignment: .center, spacing: 10) {
-            // Status Icon
-            Image(systemName: "ticket.fill")
-                .foregroundStyle(statusColor)
-                .font(.system(size: 14))
-            
-            VStack(alignment: .leading, spacing: 2) {
+        let accent = ticket.status.accent
+        HStack(alignment: .center, spacing: 12) {
+            // Left accent bar
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .fill(accent.ink)
+                .frame(width: 3, height: 32)
+
+            VStack(alignment: .leading, spacing: 4) {
                 Text(ticket.title ?? "Untitled Ticket")
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.ink)
                     .lineLimit(1)
-                
+
                 HStack(spacing: 6) {
-                    Text(ticket.identifier)
-                        .font(.caption2)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(Color.secondary.opacity(0.1))
-                        .cornerRadius(4)
-                    
-                    Text(ticket.status.rawValue.capitalized)
-                        .font(.caption2)
-                        .foregroundStyle(statusColor)
+                    Pill(text: ticket.identifier, accent: Theme.Palette.neutral, style: .outline, size: 10)
+                    Pill(text: ticket.status.displayLabel, accent: accent, style: .tinted, size: 10)
                 }
             }
-            
+
             Spacer()
-            
+
             if let priority = ticket.priority {
-                Text(priority.rawValue.capitalized)
-                    .font(.caption2)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(priorityColor(priority).opacity(0.1))
-                    .foregroundStyle(priorityColor(priority))
-                    .cornerRadius(4)
+                Pill(text: priority.rawValue.capitalized, accent: priority.accent, style: .tinted, size: 10)
             }
         }
-        .padding(.vertical, 4)
-        .contentShape(Rectangle()) // Make full row tappable
-    }
-    
-    private func priorityColor(_ p: Priority) -> Color {
-        switch p {
-        case .low: return .gray
-        case .medium: return .blue
-        case .high: return .orange
-        case .critical: return .red
-        }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
     }
 }

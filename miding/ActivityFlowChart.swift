@@ -3,84 +3,72 @@ import SwiftUI
 import Charts
 
 struct ActivityFlowChart: View {
-    // Data for each series
     let tasks: [(date: Date, count: Int)]
     let tickets: [(date: Date, count: Int)]
     let journal: [(date: Date, count: Int)]
-    
+
+    private let taskAccent = Theme.Palette.mint
+    private let ticketAccent = Theme.Palette.peach
+    private let journalAccent = Theme.Palette.lilac
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Activity Flow")
-                .font(.headline)
-            
+        VStack(alignment: .leading, spacing: 16) {
+            SectionHeader("Activity Flow", accent: Theme.Palette.sky)
+
             if tasks.isEmpty && tickets.isEmpty && journal.isEmpty {
-                 ContentUnavailableView("No activity data", systemImage: "chart.xyaxis.line")
-                    .frame(height: 180)
+                EmptyStateView(symbol: "chart.xyaxis.line", title: "No activity yet", accent: Theme.Palette.sky)
+                    .frame(height: 200)
             } else {
                 Chart {
-                    tasksSeries
-                    ticketsSeries
-                    journalSeries
+                    series(tasks, name: "Tasks", accent: taskAccent)
+                    series(tickets, name: "Tickets", accent: ticketAccent)
+                    series(journal, name: "Journal", accent: journalAccent)
                 }
                 .chartXAxis {
                     AxisMarks(values: .stride(by: .day, count: 2)) { value in
                         if let date = value.as(Date.self) {
-                             AxisValueLabel {
-                                Text(date, format: .dateTime.day().month())
-                             }
+                            AxisValueLabel { Text(date, format: .dateTime.day().month()) }
                         }
                     }
                 }
-                .chartYAxis {
-                    AxisMarks(position: .leading)
-                }
-                .frame(height: 200)
-                
-                // Custom Legend
+                .chartYAxis { AxisMarks(position: .leading) }
+                .frame(height: 220)
+
                 HStack(spacing: 16) {
-                    legendItem(name: "Tasks", color: Color(red: 0.0, green: 0.8, blue: 1.0))
-                    legendItem(name: "Tickets", color: Color(red: 1.0, green: 0.6, blue: 0.0))
-                    legendItem(name: "Journal", color: Color(red: 1.0, green: 0.0, blue: 0.6))
+                    legendItem(name: "Tasks", accent: taskAccent)
+                    legendItem(name: "Tickets", accent: ticketAccent)
+                    legendItem(name: "Journal", accent: journalAccent)
                 }
-                .font(.caption)
+                .padding(.top, 4)
             }
         }
-        .padding(20)
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 24))
-        .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: 5)
-        .overlay(
-            RoundedRectangle(cornerRadius: 24)
-                .stroke(Color.white.opacity(0.3), lineWidth: 1)
-        )
+        .pastelCard(.elevated, padding: 24)
     }
-    
-    private func legendItem(name: String, color: Color) -> some View {
-        HStack(spacing: 4) {
-            Circle()
-                .fill(color)
-                .frame(width: 8, height: 8)
+
+    private func legendItem(name: String, accent: AccentPair) -> some View {
+        HStack(spacing: 6) {
+            Circle().fill(accent.ink).frame(width: 8, height: 8)
             Text(name)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Theme.Palette.inkSoft)
         }
     }
-    
+
     @ChartContentBuilder
-    private var tasksSeries: some ChartContent {
-        ForEach(tasks, id: \.date) { item in
+    private func series(_ data: [(date: Date, count: Int)], name: String, accent: AccentPair) -> some ChartContent {
+        ForEach(data, id: \.date) { item in
             LineMark(
                 x: .value("Date", item.date),
                 y: .value("Activity", item.count),
-                series: .value("Type", "Tasks")
+                series: .value("Type", name)
             )
             .interpolationMethod(.catmullRom)
-            .foregroundStyle(Color(red: 0.0, green: 0.8, blue: 1.0)) // Cyan
+            .foregroundStyle(accent.ink)
+            .lineStyle(StrokeStyle(lineWidth: 2.5))
             .symbol {
-                Circle()
-                    .fill(Color(red: 0.0, green: 0.8, blue: 1.0))
-                    .frame(width: 6, height: 6)
+                Circle().fill(accent.ink).frame(width: 6, height: 6)
             }
-            
+
             AreaMark(
                 x: .value("Date", item.date),
                 y: .value("Activity", item.count)
@@ -88,78 +76,7 @@ struct ActivityFlowChart: View {
             .interpolationMethod(.catmullRom)
             .foregroundStyle(
                 LinearGradient(
-                    colors: [
-                        Color(red: 0.0, green: 0.8, blue: 1.0).opacity(0.3),
-                        Color(red: 0.0, green: 0.8, blue: 1.0).opacity(0.0)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            )
-        }
-    }
-    
-    @ChartContentBuilder
-    private var ticketsSeries: some ChartContent {
-        ForEach(tickets, id: \.date) { item in
-            LineMark(
-                x: .value("Date", item.date),
-                y: .value("Activity", item.count),
-                series: .value("Type", "Tickets")
-            )
-            .interpolationMethod(.catmullRom)
-            .foregroundStyle(Color(red: 1.0, green: 0.6, blue: 0.0)) // Orange
-            .symbol {
-                Circle()
-                    .fill(Color(red: 1.0, green: 0.6, blue: 0.0))
-                    .frame(width: 6, height: 6)
-            }
-            
-            AreaMark(
-                x: .value("Date", item.date),
-                y: .value("Activity", item.count)
-            )
-            .interpolationMethod(.catmullRom)
-            .foregroundStyle(
-                LinearGradient(
-                    colors: [
-                        Color(red: 1.0, green: 0.6, blue: 0.0).opacity(0.3),
-                        Color(red: 1.0, green: 0.6, blue: 0.0).opacity(0.0)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            )
-        }
-    }
-    
-    @ChartContentBuilder
-    private var journalSeries: some ChartContent {
-        ForEach(journal, id: \.date) { item in
-            LineMark(
-                x: .value("Date", item.date),
-                y: .value("Activity", item.count),
-                series: .value("Type", "Journal")
-            )
-            .interpolationMethod(.catmullRom)
-            .foregroundStyle(Color(red: 1.0, green: 0.0, blue: 0.6)) // Pink
-            .symbol {
-                Circle()
-                    .fill(Color(red: 1.0, green: 0.0, blue: 0.6))
-                    .frame(width: 6, height: 6)
-            }
-            
-            AreaMark(
-                x: .value("Date", item.date),
-                y: .value("Activity", item.count)
-            )
-            .interpolationMethod(.catmullRom)
-            .foregroundStyle(
-                LinearGradient(
-                    colors: [
-                        Color(red: 1.0, green: 0.0, blue: 0.6).opacity(0.3),
-                        Color(red: 1.0, green: 0.0, blue: 0.6).opacity(0.0)
-                    ],
+                    colors: [accent.tint.opacity(0.7), accent.tint.opacity(0.0)],
                     startPoint: .top,
                     endPoint: .bottom
                 )

@@ -12,6 +12,8 @@ struct midingApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .tint(Theme.Palette.lilac.ink)
+                .preferredColorScheme(.light)
         }
     }
 }

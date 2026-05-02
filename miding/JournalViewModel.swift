@@ -96,7 +96,8 @@ class NotesViewModel: ObservableObject {
             // 1. Load existing notes first
             for url in noteFiles {
                 if let data = try? Data(contentsOf: url),
-                   let note = try? JSONDecoder().decode(Note.self, from: data) {
+                   var note = try? JSONDecoder().decode(Note.self, from: data) {
+                    Self.migrateBranchesIfNeeded(&note)
                     loadedNotes.append(note)
                     // Populate cache
                     let result = parser.parse(markdown: note.content)
@@ -156,13 +157,104 @@ class NotesViewModel: ObservableObject {
             modifiedAt: Date(),
             journalDate: isJournal ? Date() : nil
         )
-        let entry = NoteHistoryEntry(timestamp: Date(), title: newNote.title, contentSnapshot: "", summary: "Created")
+        let entry = NoteHistoryEntry(timestamp: Date(), title: newNote.title, contentSnapshot: "", summary: "Created", branch: "main", parentIds: [])
         newNote.history.append(entry)
+        newNote.branchHeads["main"] = entry.id
+        newNote.currentBranch = "main"
         notes.insert(newNote, at: 0)
         selectedNote = newNote
         ticketsCache[newNote.id] = []
         tasksCache[newNote.id] = []
         saveNote(newNote)
+    }
+
+    // MARK: - Branch operations
+
+    /// Backfills branch metadata for notes saved before branching existed.
+    static func migrateBranchesIfNeeded(_ note: inout Note) {
+        guard note.branchHeads.isEmpty else { return }
+        guard !note.history.isEmpty else {
+            note.branchHeads = [:]
+            note.currentBranch = "main"
+            return
+        }
+        var prev: UUID? = nil
+        for i in note.history.indices {
+            note.history[i].branch = "main"
+            note.history[i].parentIds = prev.map { [$0] } ?? []
+            prev = note.history[i].id
+        }
+        if let last = prev {
+            note.branchHeads = ["main": last]
+        }
+        note.currentBranch = "main"
+    }
+
+    private func appendCommit(to note: inout Note, summary: String, content: String, branch: String, parents: [UUID]) -> NoteHistoryEntry {
+        let entry = NoteHistoryEntry(
+            timestamp: Date(),
+            title: note.title,
+            contentSnapshot: content,
+            summary: summary,
+            branch: branch,
+            parentIds: parents
+        )
+        note.history.append(entry)
+        note.branchHeads[branch] = entry.id
+        return entry
+    }
+
+    func createBranch(named rawName: String, from sourceBranch: String? = nil) {
+        guard var note = selectedNote else { return }
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, note.branchHeads[name] == nil else { return }
+        let source = sourceBranch ?? note.currentBranch
+        guard let sourceHead = note.branchHeads[source] else { return }
+        note.branchHeads[name] = sourceHead
+        note.currentBranch = name
+        commitNote(note)
+        contentVersion += 1
+    }
+
+    func switchBranch(to name: String) {
+        guard var note = selectedNote, note.branchHeads[name] != nil else { return }
+        guard let headID = note.branchHeads[name],
+              let head = note.history.first(where: { $0.id == headID }) else { return }
+        note.currentBranch = name
+        note.content = head.contentSnapshot
+        note.modifiedAt = Date()
+        commitNote(note)
+        contentVersion += 1
+    }
+
+    /// Theirs-wins merge: creates a merge commit on `target` whose content is `source`'s HEAD content.
+    func mergeBranch(source: String, into target: String) {
+        guard var note = selectedNote else { return }
+        guard let sourceHead = note.branchHeads[source],
+              let targetHead = note.branchHeads[target],
+              sourceHead != targetHead,
+              let sourceEntry = note.history.first(where: { $0.id == sourceHead }) else { return }
+        _ = appendCommit(
+            to: &note,
+            summary: "Merged \(source) into \(target)",
+            content: sourceEntry.contentSnapshot,
+            branch: target,
+            parents: [targetHead, sourceHead]
+        )
+        if note.currentBranch == target {
+            note.content = sourceEntry.contentSnapshot
+        }
+        note.modifiedAt = Date()
+        commitNote(note)
+        contentVersion += 1
+    }
+
+    private func commitNote(_ note: Note) {
+        if let index = notes.firstIndex(where: { $0.id == note.id }) {
+            notes[index] = note
+        }
+        selectedNote = note
+        saveNote(note)
     }
     
     func updateSelectedNote(content: String) {
@@ -226,6 +318,45 @@ class NotesViewModel: ObservableObject {
         selectedNote = note
         saveNote(note)
     }
+    
+    func topicNoteCount(_ topic: String) -> Int {
+        notes.reduce(0) { acc, note in
+            (note.journalDate == nil && note.tags.contains(topic)) ? acc + 1 : acc
+        }
+    }
+
+    func renameTagAcrossNotes(from oldTag: String, to newTagRaw: String) {
+        let oldClean = oldTag.trimmingCharacters(in: .whitespaces).lowercased()
+        let newClean = newTagRaw.trimmingCharacters(in: .whitespaces).lowercased()
+            .replacingOccurrences(of: "#", with: "")
+        
+        guard !oldClean.isEmpty, !newClean.isEmpty, oldClean != newClean else { return }
+        
+        var selectedReplacement: Note?
+        
+        for index in notes.indices {
+            var note = notes[index]
+            guard note.tags.contains(oldClean) else { continue }
+            
+            if note.tags.contains(newClean) {
+                note.tags.removeAll { $0 == oldClean }
+            } else {
+                note.tags = note.tags.map { $0 == oldClean ? newClean : $0 }
+            }
+            
+            note.modifiedAt = Date()
+            notes[index] = note
+            saveNote(note)
+            
+            if note.id == selectedNote?.id {
+                selectedReplacement = note
+            }
+        }
+        
+        if let selectedReplacement {
+            selectedNote = selectedReplacement
+        }
+    }
 
     func saveNote(_ note: Note) {
         let url = documentsURL.appendingPathComponent("note_\(note.id.uuidString).json")
@@ -239,36 +370,17 @@ class NotesViewModel: ObservableObject {
     
     func saveAndCommit() async {
         guard var note = selectedNote else { return }
-        // Record a history entry
-        let entry = NoteHistoryEntry(
-            timestamp: Date(),
-            title: note.title,
-            contentSnapshot: note.content,
-            summary: "Saved"
-        )
-        note.history.append(entry)
-        if let index = notes.firstIndex(where: { $0.id == note.id }) {
-            notes[index] = note
-        }
-        selectedNote = note
-        saveNote(note)
+        let parents = note.branchHeads[note.currentBranch].map { [$0] } ?? []
+        _ = appendCommit(to: &note, summary: "Saved", content: note.content, branch: note.currentBranch, parents: parents)
+        commitNote(note)
         contentVersion += 1
     }
-    
+
     func saveSnapshot(summary: String = "Snapshot") {
         guard var note = selectedNote else { return }
-        let entry = NoteHistoryEntry(
-            timestamp: Date(),
-            title: note.title,
-            contentSnapshot: note.content,
-            summary: summary
-        )
-        note.history.append(entry)
-        if let index = notes.firstIndex(where: { $0.id == note.id }) {
-            notes[index] = note
-        }
-        selectedNote = note
-        saveNote(note)
+        let parents = note.branchHeads[note.currentBranch].map { [$0] } ?? []
+        _ = appendCommit(to: &note, summary: summary, content: note.content, branch: note.currentBranch, parents: parents)
+        commitNote(note)
         contentVersion += 1
     }
     
@@ -445,4 +557,3 @@ class NotesViewModel: ObservableObject {
         return f.string(from: date)
     }
 }
-
